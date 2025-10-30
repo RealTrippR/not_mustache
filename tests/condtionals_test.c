@@ -43,79 +43,59 @@ int main()
     uint8_t PARSER_OUTPUT_BUFFER[8192];
     mustache_parser parser;
 
-    mustache_param_string param_title = {
+
+    mustache_param_boolean param_bool1 = {
         .pNext = NULL,
-        .type = MUSTACHE_PARAM_STRING,
-        .name = {"title",strlen("title")},
-        .str = {"Generic Webpage",strlen("Generic Webpage")}
-    };
-
-    mustache_param_string param_name = {
-       .pNext = &param_title,
-       .type = MUSTACHE_PARAM_STRING,
-       .name = {"name",strlen("name")},
-       .str = {"Tripp",strlen("Tripp")}
-    };
-
-    mustache_param_number param_number = {
-      .pNext = &param_name,
-      .type = MUSTACHE_PARAM_NUMBER,
-      .name = {"messages",strlen("messages")},
-      .value = 3.14159265,
-      .decimals = 8,
-      .trimZeros = true
-    };
-
-    mustache_param_boolean param_logged_in = {
-        .pNext = &param_number,
         .type = MUSTACHE_PARAM_BOOLEAN,
-        .name = {"loggedIn",strlen("loggedIn")},
+        .name = {"bool1",strlen("bool1")},
+        .value = true
+    };
+    mustache_param_boolean param_bool2 = {
+       .pNext = &param_bool1,
+       .type = MUSTACHE_PARAM_BOOLEAN,
+       .name = {"bool2",strlen("bool2")},
+       .value = true
+    };
+    mustache_param_boolean param_bool3 = {
+       .pNext = &param_bool2,
+       .type = MUSTACHE_PARAM_BOOLEAN,
+       .name = {"bool3",strlen("bool3")},
+       .value = true
+    };
+    mustache_param_boolean param_bool4 = {
+        .pNext = &param_bool3,
+        .type = MUSTACHE_PARAM_BOOLEAN,
+        .name = {"bool4",strlen("bool4")},
         .value = true
     };
 
-    mustache_param_boolean param_site_up = {
-        .pNext = &param_logged_in,
-        .type = MUSTACHE_PARAM_BOOLEAN,
-        .name = {"site_up",strlen("site_up")},
-        .value = true
-    };
 
-    mustache_param_string param_site = {
-       .pNext = &param_site_up,
-       .type = MUSTACHE_PARAM_STRING,
-       .name = {"site",strlen("site")},
-       .str = {"The WWW",strlen("The WWW")}
-    };
-
-
-    const char* filename = "basic.html";
+    const char* filename = "conditionals.html";
     mustache_const_slice filenameSlice = { filename, strlen(filename) };
 
+    mustache_template_cache_entry entryCache = {
+        0
+    };
 
 
-    FILE* fptr = fopen("basic_parsed.html", "wb");
+    FILE* fptr = fopen("conditionals_parsed.html", "wb");
     if (!fptr) {
-        fprintf(stderr,"FAILED TO OPEN FILE\n");
+        fprintf(stderr, "FAILED TO OPEN FILE\n");
         return -1;
     }
 
-
-    if (mustache_parse_file(&parser, filenameSlice, &param_site,
-        (mustache_slice){ PARSER_INPUT_BUFFER,sizeof(PARSER_INPUT_BUFFER) },
-        (mustache_slice){ PARSER_OUTPUT_BUFFER,sizeof(PARSER_OUTPUT_BUFFER) },
+    if (mustache_parse_file(&parser, filenameSlice, &param_bool4,
+        (mustache_slice) {
+        PARSER_INPUT_BUFFER, sizeof(PARSER_INPUT_BUFFER)
+    },
+        (mustache_slice) {
+        PARSER_OUTPUT_BUFFER, sizeof(PARSER_OUTPUT_BUFFER)
+    },
         fptr, parse_callback) != MUSTACHE_SUCCESS)
     {
         fprintf(stderr, "MUSTACHE: FAILED TO PARSE FILE\n");
         return -1;
     }
-
-    //mustache_cache_remove_item(&templateCache, filenameSlice3);
     
-    //mustache_cache_print_first_byte_lookup(&templateCache);
-
-    //mustache_cache_print_entries(&templateCache);
-
-    //mustache_cache_validate(&templateCache);
-
     return 0;
 }

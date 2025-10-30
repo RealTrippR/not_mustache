@@ -1,0 +1,13 @@
+<!-- TEST FOR NESTED CONDITIONALS -->
+{{#bool1}}
+    Hello. This is bool1.
+    {{#bool2}}
+    This is bool2.
+    {{/bool2}}
+    {{^bool3}}
+    This is bool3.
+    {{#bool4}}
+        This is bool4, only available is bool3 exists.
+    {{/bool4}}
+    {{/bool3}}
+{{/bool1}}

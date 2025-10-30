@@ -1,6 +1,31 @@
+/***************************************************
+MIT License
+
+Copyright (C) 2025 Tripp R
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+***************************************************/
+
 #include "mustache.h"
 #include <string.h>
 #include <streql/streqlasm.h>
+#include <math.h>
 
 #ifndef NDEBUG
 #include <assert.h>
@@ -23,17 +48,194 @@ static uint32_t u32_round_to_next_power_of_2(uint32_t v) {
     v++;
     return v;
 }
-void mustache_template_cache_init(mustache_template_cache* cache)
-{
-    memset(cache, 0, sizeof(mustache_template_cache));
+
+uint8_t digits_i64(int64_t n) {
+    if (n < 10) return 1;
+    if (n < 100) return 2;
+    if (n < 1000) return 3;
+    if (n < 10000) return 4;
+    if (n < 100000) return 5;
+    if (n < 1000000) return 6;
+    if (n < 10000000) return 7;
+    if (n < 100000000) return 8;
+    if (n < 1000000000) return 9;
+    if (n < 10000000000) return 10;
+    if (n < 100000000000) return 11;
+    if (n < 1000000000000) return 12;
+    if (n < 10000000000000) return 13;
+    if (n < 100000000000000) return 14;
+    if (n < 1000000000000000) return 15;
+    if (n < 10000000000000000) return 16;
+    if (n < 100000000000000000) return 17;
+    if (n < 1000000000000000000) return 18;
+    if (n < 10000000000000000000) return 19;
+    return 0;
 }
 
-bool mustache_check_cache(mustache_template_cache* cache, mustache_const_slice itemkey)
+static int16_t i64toa(int64_t n,uint8_t* buf, size_t size)
+{
+    int8_t dig = digits_i64(n);
+    int16_t i = 0;
+    while (n!=0)
+    {
+        i++;
+        buf[dig - i] = n % 10 + 48;
+        n /= 10;
+    }
+    return i;
+}
+
+// returns the expected write length of a dtoa call
+static uint16_t dtoalen(double value, uint16_t precision, bool trimZeros) {
+    if (isnan(value)) {
+        return 3;
+    }
+    if (isinf(value)) {
+        if (value < 0) {
+            return 4;
+        }
+        else {
+            return 3;
+        }
+        return;
+    }
+
+    if (value < 0) {
+        value = -value;
+    }
+
+    uint16_t len = 0;
+    if (value < 0) {
+        len++;
+        value = -value;
+    }
+
+    long long int_part = (long long)value;
+    double frac_part = value - (double)int_part;
+
+    if (int_part == 0) {
+        len += 1;
+    }
+    else {
+        long long tmp = int_part;
+        while (tmp > 0) {
+            len++;
+            tmp /= 10;
+        }
+    }
+
+    if (precision > 0)
+    {
+        if (!trimZeros)
+        {
+            len += 1 + precision; 
+        }
+        else {
+            uint16_t frac_len = 0;
+            double frac = frac_part;
+            for (uint16_t i = 0; i < precision; i++) 
+            {
+                frac *= 10.0;
+                int digit = (int)frac;
+                frac -= digit;
+                if (digit != 0) {
+                    frac_len = i + 1;
+                }
+            }
+            if (frac_len > 0) {
+                len += 1 + frac_len; // '.' 
+            }
+        }
+    }
+
+    return len;
+}
+
+// converts a double to string and returns the write head
+static uint8_t* dtoa(double value, uint8_t* buf, size_t size, uint16_t precision, bool trimZeros) {
+    if (size == 0) return buf;
+
+    if (isnan(value)) {
+        memcpy(buf, "nan", min(size, 3));
+        return buf + min(size, 3);
+    }
+    if (isinf(value)) {
+        if (value < 0) {
+            memcpy(buf, "-inf", min(size, 4));
+            return buf + min(size, 4);
+        }
+        else {
+            memcpy(buf, "inf", min(size, 3));
+            return buf + min(size, 3);
+        }
+    }
+
+    char* start = buf;
+
+    if (value < 0) {
+        if (size <= 1) return buf;
+        *buf++ = '-';
+        size--;
+        value = -value;
+    }
+
+    // get integer and frac parts
+    long long int_part = (long long)value;
+    double frac_part = value - (double)int_part;
+
+    // Write integer part
+    int written = i64toa(int_part, buf, size);
+    if (written < 0 || written >= (int)size) return buf;
+
+    buf += written;
+    size -= written;
+
+    char frac_buf[64];
+    uint8_t frac_len = 0;
+
+    frac_part += 0.5 * pow(10, -precision);
+
+    for (int32_t i = 0; i < precision && frac_len + 1 < (int32_t)sizeof(frac_buf); i++) {
+        frac_part *= 10.0;
+        int32_t digit = (int32_t)frac_part;
+        frac_buf[frac_len++] = '0' + digit;
+        frac_part -= digit;
+    }
+
+    if (trimZeros) {
+        while (frac_len > 0 && frac_buf[frac_len - 1] == '0')
+            frac_len--;
+    }
+
+    // skip '.' if no frac. digits remain
+    if (frac_len == 0)
+        return buf;
+
+    // '.'
+    if (size < 2) return buf;
+    *buf++ = '.';
+    size--;
+
+    // write fractional digits
+    for (uint8_t i = 0; i < frac_len && size > 1; i++) {
+        *buf++ = frac_buf[i];
+        size--;
+    }
+
+    return buf;
+}
+
+void mustache_template_cache_init(mustache_cache* cache)
+{
+    memset(cache, 0, sizeof(mustache_cache));
+}
+
+bool mustache_check_cache(mustache_cache* cache, mustache_const_slice itemkey)
 {
     return false;
 }
 
-static uint8_t mustache_cache_request_insertion_from_blocks(mustache_template_cache* cache, mustache_cache_lookup_block* prevFilledBlock,
+static uint8_t mustache_cache_request_insertion_from_blocks(mustache_cache* cache, mustache_cache_lookup_block* prevFilledBlock,
     mustache_cache_lookup_block* nextFilledBlock, uint32_t insertionSize/*in bytes*/)
 {
 
@@ -47,7 +249,7 @@ static uint8_t mustache_cache_request_insertion_from_blocks(mustache_template_ca
     return MUSTACHE_SUCCESS;
 }
 
-static uint8_t mustache_cache_request_block_resize(mustache_template_cache* cache, mustache_cache_lookup_block* blockToExpand, uint32_t newCapacity)
+static uint8_t mustache_cache_request_block_resize(mustache_cache* cache, mustache_cache_lookup_block* blockToExpand, uint32_t newCapacity)
 {
     // no lookup block exists for this item
     // if no lookup block exists, find available space
@@ -173,7 +375,7 @@ static uint8_t mustache_cache_request_block_resize(mustache_template_cache* cach
 }
 
 static inline mustache_cache_lookup_block* 
-get_next_block_with_contents(mustache_template_cache* cache, mustache_cache_lookup_block* block)
+get_next_block_with_contents(mustache_cache* cache, mustache_cache_lookup_block* block)
 {
     mustache_cache_lookup_block* endBlock = cache->firstByteLookup + array_count(cache->firstByteLookup);
     block++;
@@ -190,7 +392,7 @@ get_next_block_with_contents(mustache_template_cache* cache, mustache_cache_look
 }
 
 static inline void
-update_next_of_previous_block(mustache_template_cache* cache, mustache_cache_lookup_block* block)
+update_next_of_previous_block(mustache_cache* cache, mustache_cache_lookup_block* block)
 {
 #ifndef NDEBUG
     if (block->capacity == 0) {
@@ -211,7 +413,7 @@ update_next_of_previous_block(mustache_template_cache* cache, mustache_cache_loo
     return;
 }
 
-uint8_t mustache_cache_set_item(mustache_template_cache* cache, mustache_const_slice itemkey, mustache_cache_item item)
+uint8_t mustache_cache_set_item(mustache_cache* cache, mustache_const_slice itemkey, mustache_cache_item item)
 {
     if (itemkey.len==0)
         return MUSTACHE_ERR;
@@ -330,7 +532,7 @@ uint8_t mustache_cache_set_item(mustache_template_cache* cache, mustache_const_s
     return MUSTACHE_ERR;
 }
 
-uint8_t mustache_cache_remove_item(mustache_template_cache* cache, mustache_const_slice itemKey)
+uint8_t mustache_cache_remove_item(mustache_cache* cache, mustache_const_slice itemKey)
 {
     if (itemKey.len == 0) {
         return MUSTACHE_SUCCESS;
@@ -370,10 +572,10 @@ uint8_t mustache_cache_remove_item(mustache_template_cache* cache, mustache_cons
 
 
 
-static int fseek_callback(void* udata, int64_t whence, int seekdir)
+static int fseek_callback(void* udata, int64_t whence, MUSTACHE_SEEK_DIR seekdir)
 {
     FILE* fptr = (FILE*)udata;
-    return fseek(whence, whence, seekdir);
+    return fseek(fptr, whence, seekdir);
 }
 
 static size_t fread_callback(void* udata, uint8_t* dst, size_t dstlen)
@@ -384,7 +586,7 @@ static size_t fread_callback(void* udata, uint8_t* dst, size_t dstlen)
 
 
 
-uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filename, mustache_param_list* params, mustache_slice parseBuffer, void* uData, mustache_parse_callback parseCallback)
+uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filename, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* uData, mustache_parse_callback parseCallback)
 {   
    
 #ifndef NDEBUG
@@ -399,9 +601,9 @@ uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filena
     filenameNT[filename.len] = 0;
 
     FILE* fptr;
-    fptr = fopen(filenameNT, "wb");
+    fptr = fopen(filenameNT, "rb");
     if (!fptr) {
-        return MUSTACHE_ERR_FILE;
+        return MUSTACHE_ERR_FILE_OPEN;
     }
 
     // parse in chunks
@@ -411,11 +613,213 @@ uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filena
         .seekCallback = fseek_callback,
     };
 
-    return mustache_parse_stream(parser, &stream, params, parseBuffer, uData, parseCallback);
+    return mustache_parse_stream(parser, &stream, params, parseBuffer, sourceBuffer, uData, parseCallback);
 }
 
-uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, mustache_param_list* params, mustache_slice parseBuffer, void* uData, mustache_parse_callback parseCallback)
+
+static uint8_t* get_truthy_close(mustache_const_slice paramName, uint8_t* cur, uint8_t* end)
 {
+#ifndef NDEBUG
+    if (cur == NULL || end < cur || end == NULL)
+    {
+        assert(00 && "get_truthy_close: INVALID CUR OR END ARGUMENT");
+    }
+#endif // !NDEBUG
+
+    uint8_t* beg;
+    while (cur < end-2)
+    {
+        if (*cur == '{' && *(cur + 1) == '{' && *(cur + 2) == '/')
+        {
+            // find end
+            cur += 3;
+
+            uint8_t* cur2 = cur;
+            while (cur2<end-1)
+            {
+                if (*cur2 == '}' && *(cur2 + 1) == '}')
+                {
+                    break;
+                }
+                cur2++;
+            }
+
+          
+            uint16_t dist = cur2 - cur;
+            if (paramName.len == dist && strneql(paramName.u, cur, dist))
+            {
+                return cur-3;
+            }
+        }
+        cur++;
+    }
+    return NULL;
+}
+
+uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, mustache_param* params, 
+    mustache_slice sourceBuffer, mustache_slice outputBuffer, void* uData, mustache_parse_callback parseCallback)
+{
+    uint8_t tmpBuffer[512];
+    uint8_t* sourceEnd = sourceBuffer.u + sourceBuffer.len;
+    uint8_t transientBuffer[2048];
+    uint16_t transientBufferLen = 0;
+
+    uint8_t* mustacheOpen = NULL;
+    uint8_t* mustacheClose = sourceBuffer.u;
+
+    uint32_t readBytes = stream->readCallback(stream->udata, sourceBuffer.u, sourceBuffer.len);
+
+    if (readBytes < 4 || readBytes >= UINT32_MAX-3) {
+        return MUSTACHE_ERR_ARGS;
+    }
+
+    uint8_t* outputHead = outputBuffer.u;
+    uint8_t* outputEnd = outputBuffer.u + outputBuffer.len;
+    uint8_t* blockClose = NULL;
+
+    while (true)
+    {
+        // look for {{}};
+        for (uint32_t i = 0; i < sourceBuffer.len+1; ++i)
+        {
+            if (sourceBuffer.u[i] == '{' &&
+                sourceBuffer.u[i+1] == '{')
+            {
+                size_t s;
+                if (mustacheClose > sourceBuffer.u + i) {
+                    s = 0;
+                } else {
+                    s = sourceBuffer.u + i - mustacheClose;
+                }
+                memcpy(outputHead, mustacheClose, s);
+                mustacheOpen = sourceBuffer.u + i + 2;
+                outputHead += s; 
+
+                for (uint32_t j = i + 2; j < sourceBuffer.len; ++j) {
+                    if (sourceBuffer.u[j - 1] == '}' &&
+                        sourceBuffer.u[j] == '}')
+                    {
+                        mustacheClose = sourceBuffer.u + j - 2;
+
+                        if (*mustacheOpen == '!') {
+                            goto skip_mustache;
+                        }
+
+                        mustache_param* paramBase = params;
+                      
+                        uint8_t truthyState = 0; // 0: none
+                                                 // 1: truthy
+                                                 // 2: inverted truthy
+                        if (*mustacheOpen == '#') {
+                            mustacheOpen++;
+                            truthyState = 1;
+                        }
+                        else if (*mustacheOpen == '^') {
+                            mustacheOpen++;
+                            truthyState = 2;
+                        }
+                        uint16_t mustacheLen = (mustacheClose - mustacheOpen) + 1;
+
+                        // evaluate parameter
+                        while (paramBase)
+                        {
+                            if (paramBase->name.len == mustacheLen && 
+                                strneql(paramBase->name.u, mustacheOpen, mustacheLen)) 
+                            {
+                                if (paramBase->type == MUSTACHE_PARAM_STRING) 
+                                {
+                                    mustache_param_string* param = paramBase;
+                                    
+                                    if (outputHead + param->str.len > outputEnd) {
+                                        break; // NO SPACE
+                                    }
+                                    memcpy(outputHead, param->str.u, param->str.len);
+                                    outputHead+=param->str.len;
+                                }
+                                else if (paramBase->type == MUSTACHE_PARAM_NUMBER) 
+                                {
+                                    mustache_param_number* param = paramBase;
+
+                                    uint8_t* writeHead = dtoa(param->value, outputHead, (size_t)(outputEnd - outputHead),
+                                        param->decimals, param->trimZeros);
+                                    outputHead = writeHead;
+                                }
+                                else if (paramBase->type == MUSTACHE_PARAM_BOOLEAN) {
+                                    mustache_param_boolean* param = paramBase;
+
+                                    uint8_t* truthyClose;
+                                    if (truthyState!=0) 
+                                    {
+                                        truthyClose = get_truthy_close(paramBase->name, mustacheClose, sourceEnd);
+                                        uint8_t* interiorFirst = mustacheClose + 3;
+                                        uint8_t* interiorLast = truthyClose;
+                                        if ((truthyState==1&&param->value) || (truthyState==2&&!param->value)) {
+                                            
+                                        }
+                                        else {
+                                            truthyClose = truthyClose + 5 + param->name.len;
+                                            j = (uint32_t)(truthyClose - sourceBuffer.u);
+                                            mustacheClose = truthyClose;
+                                            goto skip_mustache;
+                                        }
+                                    }
+                                    else {
+                                        if (param->value) {
+                                            uint8_t dist = min(strlen("true"), outputEnd - outputHead);
+                                            memcpy(outputHead, "true", dist);
+                                            outputHead += dist;
+                                        }
+                                        else {
+                                            uint8_t dist = min(strlen("false"), outputEnd - outputHead);
+                                            memcpy(outputHead, "false", dist);
+                                            outputHead += dist;
+                                        }
+                                    }
+                                }
+
+                                 break;
+                            }
+                        #ifndef NDEBUG
+                            if (paramBase->pNext == paramBase) {
+                                assert(00 && "mustache_parse_stream: CIRCULAR DEPENDENCY DETECTED. THE pNext OF NODE @ %p POINTS TO ITSELF.", paramBase);
+                            }
+                        #endif // !NDEBUG
+
+                           
+                            paramBase = paramBase->pNext;
+                        }
+
+                    skip_mustache:
+                        mustacheClose += 3;
+                        mustacheOpen = NULL;
+                        i = j;
+                        break;
+                    }
+                }
+            }
+        }
+        if (mustacheOpen) {
+            transientBufferLen = (sourceBuffer.u + readBytes) - mustacheOpen;
+            memcpy(transientBuffer, mustacheOpen, transientBufferLen);
+        }
+
+        // fill the last part of the output buffer if needed
+        size_t s = sourceBuffer.u + readBytes - mustacheClose;
+        memcpy(outputHead, mustacheClose, s);
+        outputHead += s;
+
+        mustache_slice parsedSlice = {
+            .u = outputBuffer.u,
+            .len = outputHead - outputBuffer.u,
+        };
+        parseCallback(parser, uData, parsedSlice);
+
+        readBytes = stream->readCallback(stream->udata, sourceBuffer.u, sourceBuffer.len);
+        if (readBytes == 0) {
+            break;
+        }
+    }
+
     return MUSTACHE_SUCCESS;
 }
 
@@ -426,7 +830,7 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, 
 /* ====== SYSTEM TESTS ====== */
 
 #ifdef MUSTACHE_SYSTEM_TESTS
-void mustache_cache_print_first_byte_lookup(const mustache_template_cache* cache)
+void mustache_cache_print_first_byte_lookup(const mustache_cache* cache)
 {
     printf("\nCACHE can hold a maximum of %d lookup entries.\n", cache->entryBuffer.len / sizeof(mustache_cache_entry));
     for (uint32_t i = 0; i < 256; ++i) {
@@ -441,7 +845,7 @@ void mustache_cache_print_first_byte_lookup(const mustache_template_cache* cache
 }
 
 
-void mustache_cache_print_entries_of_lookup_block(const mustache_template_cache* cache, uint8_t byte)
+void mustache_cache_print_entries_of_lookup_block(const mustache_cache* cache, uint8_t byte)
 {
     uint32_t i = 0;
     mustache_cache_entry* entry = cache->entryBuffer.u + cache->firstByteLookup[byte].offset;
@@ -456,7 +860,7 @@ void mustache_cache_print_entries_of_lookup_block(const mustache_template_cache*
     }
 }
 
-void mustache_cache_validate(const mustache_template_cache* cache)
+void mustache_cache_validate(const mustache_cache* cache)
 {
     uint16_t invalidLookupBlockCount = 0;
     uint16_t blocksWithContentsBlockCount = 0;
@@ -509,7 +913,7 @@ void mustache_cache_validate(const mustache_template_cache* cache)
     }
 }
 
-void mustache_cache_print_entries(const mustache_template_cache* cache)
+void mustache_cache_print_entries(const mustache_cache* cache)
 {
     const mustache_cache_lookup_block* block = cache->firstByteLookup;
     for (; block<cache->firstByteLookup+array_count(cache->firstByteLookup); ++block)

@@ -122,14 +122,24 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="mustache\mustache.c" />
-    <ClCompile Include="tests\base_test.c" />
-  </ItemGroup>
-  <ItemGroup>
+    <ClInclude Include="mustache\deps\streql\streqlasm.h" />
     <ClInclude Include="mustache\mustache.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="tests\basic.html" />
+    <None Include="tests\basic_parsed.html" />
+    <None Include="tests\conditionals.html" />
+    <None Include="tests\conditionals_parsed.html" />
+    <None Include="tests\makefile" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="mustache\mustache.c" />
+    <ClCompile Include="tests\base_test.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="tests\condtionals_test.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+    </ClCompile>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
