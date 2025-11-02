@@ -38,10 +38,12 @@ void parse_callback(mustache_parser* parser, void* udata, mustache_slice parsed)
 
 int main()
 {
-    uint8_t ITEM_BUFFER[16384];
     uint8_t PARSER_INPUT_BUFFER[4096];
     uint8_t PARSER_OUTPUT_BUFFER[8192];
+    uint8_t PARENT_STACK_BUFFER[2048];
     mustache_parser parser;
+    parser.parentStackBuf = (mustache_slice){ PARENT_STACK_BUFFER,sizeof(PARENT_STACK_BUFFER) };
+
 
     mustache_param_string param_title = {
         .pNext = NULL,
@@ -88,19 +90,62 @@ int main()
     };
 
 
-    const char* filename = "basic.html";
-    mustache_const_slice filenameSlice = { filename, strlen(filename) };
 
+
+    mustache_param_string name1 = {
+        .pNext = NULL,
+        .type = MUSTACHE_PARAM_STRING,
+        .name = {"name",strlen("name")},
+        .str = {"NASA_Howard",strlen("NASA_Howard")}
+    };
+    /*
+    mustache_param_object user1 = {
+        .pNext = NULL,
+        .type = MUSTACHE_PARAM_OBJECT,
+        .name = {"u1",strlen("u1")},
+        .pMembers = &name1
+    };
+    */
+    mustache_param_string name2 = {
+       .pNext = &name1,
+       .type = MUSTACHE_PARAM_STRING,
+       .name = {"name",strlen("name")},
+       .str = {"Richard36",strlen("Richard36")}
+    };
+    /*
+    mustache_param_object user2 = {
+        .pNext = &user1,
+        .type = MUSTACHE_PARAM_OBJECT,
+        .name = {"u2",strlen("u2")},
+        .pMembers = &name2
+    };
+    */
+    mustache_param_list param_list = {
+        .pNext = &param_site,
+        .type = MUSTACHE_PARAM_LIST,
+        .name = {"users",strlen("users")},
+        .valueCount = 2,
+        .pValues = &name2
+    };
+
+    const char* filename = "basic.html";
+    mustache_const_slice filenameSlice = { (const uint8_t*)filename, strlen(filename) };
 
 
     FILE* fptr = fopen("basic_parsed.html", "wb");
     if (!fptr) {
-        fprintf(stderr,"FAILED TO OPEN FILE\n");
-        return -1;
-    }
+        fprintf(stderr,"FAILED TO OPEN FILE\n"); return -1;}
 
 
-    if (mustache_parse_file(&parser, filenameSlice, &param_site,
+    uint8_t templateCacheBuf[8192];
+
+    mustache_template_cache templateCache = {
+        .varBuffer = {templateCacheBuf, sizeof(templateCacheBuf)}
+    };
+
+    if (mustache_parse_file(&parser, filenameSlice, 
+        &templateCache, MUSTACHE_CACHE_MODE_WRITE,
+        (mustache_param*)&param_list,
         (mustache_slice){ PARSER_INPUT_BUFFER,sizeof(PARSER_INPUT_BUFFER) },
         (mustache_slice){ PARSER_OUTPUT_BUFFER,sizeof(PARSER_OUTPUT_BUFFER) },
         fptr, parse_callback) != MUSTACHE_SUCCESS)
@@ -108,6 +153,32 @@ int main()
         fprintf(stderr, "MUSTACHE: FAILED TO PARSE FILE\n");
         return -1;
     }
+
+
+    fclose(fptr);
+
+    /*fptr = fopen("basic_parsed.html", "wb");
+    if (!fptr) {
+        fprintf(stderr, "FAILED TO OPEN FILE\n"); return -1;
+    }*/
+
+
+  /*  if (mustache_parse_file(&parser, filenameSlice, 
+        &templateCache, MUSTACHE_CACHE_MODE_READ_WRITE,
+        (mustache_param*)&param_list,
+        (mustache_slice) {
+        PARSER_INPUT_BUFFER, sizeof(PARSER_INPUT_BUFFER)
+    },
+        (mustache_slice) {
+        PARSER_OUTPUT_BUFFER, sizeof(PARSER_OUTPUT_BUFFER)
+    },
+        fptr, parse_callback) != MUSTACHE_SUCCESS)
+    {
+        fprintf(stderr, "MUSTACHE: FAILED TO PARSE FILE\n");
+        return -1;
+    }*/
+
+    fclose(fptr);
 
     //mustache_cache_remove_item(&templateCache, filenameSlice3);
     

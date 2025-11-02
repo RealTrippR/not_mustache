@@ -60,7 +60,7 @@ int main()
        .pNext = &param_bool2,
        .type = MUSTACHE_PARAM_BOOLEAN,
        .name = {"bool3",strlen("bool3")},
-       .value = true
+       .value = false
     };
     mustache_param_boolean param_bool4 = {
         .pNext = &param_bool3,
@@ -73,10 +73,6 @@ int main()
     const char* filename = "conditionals.html";
     mustache_const_slice filenameSlice = { filename, strlen(filename) };
 
-    mustache_template_cache_entry entryCache = {
-        0
-    };
-
 
     FILE* fptr = fopen("conditionals_parsed.html", "wb");
     if (!fptr) {
@@ -84,7 +80,16 @@ int main()
         return -1;
     }
 
-    if (mustache_parse_file(&parser, filenameSlice, &param_bool4,
+
+    uint8_t templateCacheBuf[8192];
+
+    mustache_template_cache templateCache = {
+        .varBuffer = {templateCacheBuf, sizeof(templateCacheBuf)}
+    };
+
+    if (mustache_parse_file(&parser, filenameSlice,
+        &templateCache, MUSTACHE_CACHE_MODE_WRITE,
+        (mustache_param*)&param_bool4,
         (mustache_slice) {
         PARSER_INPUT_BUFFER, sizeof(PARSER_INPUT_BUFFER)
     },
@@ -96,6 +101,6 @@ int main()
         fprintf(stderr, "MUSTACHE: FAILED TO PARSE FILE\n");
         return -1;
     }
-    
+
     return 0;
 }

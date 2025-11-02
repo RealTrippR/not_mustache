@@ -1,0 +1,6 @@
+{{^loggedIn}}
+<p>Please <a href="/login">log in</a> to continue.</p>
+{{/loggedIn}}
+{{#users}}
+<p>{{.}} is online.</p>
+{{/users}}

@@ -54,4 +54,9 @@
       <Filter>tests</Filter>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <Text Include="tests\txt.txt">
+      <Filter>tests</Filter>
+    </Text>
+  </ItemGroup>
 </Project>

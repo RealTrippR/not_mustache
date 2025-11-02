@@ -18,6 +18,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR TH
 #ifndef TRIPP_STREQL_ASM_H
 #define TRIPP_STREQL_ASM_H
 
+#include <ctype.h>
 
 #if defined(_MSC_VER)
     #if defined(_M_X64)

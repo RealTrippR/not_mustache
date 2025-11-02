@@ -38,7 +38,11 @@ typedef enum {
     MUSTACHE_ERR_NO_SPACE,
     MUSTACHE_ERR_OVERFLOW,
     MUSTACHE_ERR_UNDERFLOW,
-    MUSTACHE_ERR_ARGS
+    MUSTACHE_ERR_INCOMPLETE,
+    MUSTACHE_ERR_STREAM,
+    MUSTACHE_ERR_ARGS,
+    MUSTACHE_ERR_INVALID_CACHE,
+    MUSTACHE_ERR_INVALID_TEMPLATE
 } MUSTACHE_RES;
 
 typedef enum {
@@ -48,11 +52,28 @@ typedef enum {
 } MUSTACHE_SEEK_DIR;
 
 typedef enum {
+    MUSTACHE_TYPE_VARIABLE,
+    MUSTACHE_TYPE_FALSY,
+    MUSTACHE_TYPE_POUND,
+    MUSTACHE_TYPE_CLOSE,
+    MUSTACHE_TYPE_COMMENT
+} MUSTACHE_TYPE;
+
+typedef enum {
     MUSTACHE_PARAM_NONE,
     MUSTACHE_PARAM_BOOLEAN,
     MUSTACHE_PARAM_NUMBER,
-    MUSTACHE_PARAM_STRING
+    MUSTACHE_PARAM_STRING,
+    MUSTACHE_PARAM_LIST,
+    MUSTACHE_PARAM_OBJECT
 } MUSTACHE_PARAM_TYPE;
+
+typedef enum {
+    MUSTACHE_CACHE_MODE_NONE = 0,
+    MUSTACHE_CACHE_MODE_WRITE = 1,
+    MUSTACHE_CACHE_MODE_READ  = 2,
+    MUSTACHE_CACHE_MODE_READ_WRITE = MUSTACHE_CACHE_MODE_WRITE | MUSTACHE_CACHE_MODE_READ
+} MUSTACHE_CACHE_MODE;
 
 /* ===== STRUCTURE FORWARD DECLARATIONS */
 
@@ -67,8 +88,6 @@ typedef struct mustache_cache_lookup_block mustache_cache_lookup_block;
 typedef struct mustache_cache_item mustache_cache_item;
 
 typedef struct mustache_cache_entry mustache_cache_entry;
-
-typedef struct mustache_cache mustache_cache;
 
 typedef struct mustache_template_cache  mustache_template_cache;
 
@@ -103,8 +122,7 @@ typedef struct mustache_const_slice
 
 typedef struct mustache_parser
 {
-    int placeholder;
-    //mustache_slice buffer;
+    mustache_slice parentStackBuf;
 } mustache_parser;
 
 typedef struct mustache_cache_lookup_block {
@@ -159,21 +177,38 @@ typedef struct {
     void* pNext;
     MUSTACHE_PARAM_TYPE type;
     mustache_const_slice name;
+    void* pValues;
+    uint32_t valueCount;
+} mustache_param_list;
+
+typedef struct {
+    void* pNext;
+    MUSTACHE_PARAM_TYPE type;
+    mustache_const_slice name;
     bool value;
 } mustache_param_boolean;
 
 typedef struct {
+    void* pNext;
+    MUSTACHE_PARAM_TYPE type;
+    mustache_const_slice name;
+    void* pMembers;
+} mustache_param_object;
+
+typedef struct {
     uint32_t begOffset;
-    uint32_t endOffset;
+    uint32_t lastOffset;
+    uint32_t truthyLen;
 } mustache_var_info;
 
 typedef struct mustache_template_cache {
     mustache_slice varBuffer;
-    mustache_slice conditionalBuffer;
 
     uint32_t varCount;
-    uint32_t conditionalCount;
+
+    uint32_t privMAX_VAR_COUNT;
 } mustache_template_cache;
+
 
 typedef struct mustache_stream
 {
@@ -197,9 +232,9 @@ uint8_t mustache_cache_set_item(mustache_cache* cache, mustache_const_slice item
 
 uint8_t mustache_cache_remove_item(mustache_cache* cache, mustache_const_slice itemKey);
 
-uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filename, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* uData, mustache_parse_callback parseCallback);
+uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filename, mustache_template_cache* streamCache, MUSTACHE_CACHE_MODE, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* uData, mustache_parse_callback parseCallback);
 
-uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, mustache_template_cache* streamCache, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* uData, mustache_parse_callback parseCallback);
+uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, mustache_template_cache* streamCache, MUSTACHE_CACHE_MODE, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* uData, mustache_parse_callback parseCallback);
 
 
 #ifdef MUSTACHE_SYSTEM_TESTS
