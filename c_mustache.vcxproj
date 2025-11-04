@@ -89,7 +89,9 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;MUSTACHE_SYSTEM_TESTS;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <WarningLevel>Level3</WarningLevel>
       <AdditionalIncludeDirectories>$(SolutionDir)\mustache;$(SolutionDir)\mustache\deps;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <TreatSpecificWarningsAsErrors>4047;4715;4716;4098;4777;4090;4133</TreatSpecificWarningsAsErrors>
+      <TreatSpecificWarningsAsErrors>4047;4715;4716;4098;4777;4090;4133;4553</TreatSpecificWarningsAsErrors>
+      <CompileAsManaged>
+      </CompileAsManaged>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>

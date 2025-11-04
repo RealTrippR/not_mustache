@@ -44,7 +44,71 @@ typedef struct {
     uint32_t MAX_COUNT;
 } parent_stack;
 
-static void parent_stack_pop(parent_stack* stack, void* param) 
+typedef enum
+{
+    STRUCTURE_TYPE_VAR,
+    STRUCTURE_TYPE_SCOPED_POUND,
+    STRUCTURE_TYPE_SCOPED_CARET,
+    STRUCTURE_TYPE_COMMENT,
+    STRUCTURE_TYPE_CLOSE,
+    STRUCTURE_TYPE_ROOT
+} STRUCTURE_TYPE;
+
+typedef struct {
+    uint32_t lineBegin;
+    uint32_t lineEnd;
+} standalone_data;
+
+typedef struct structure structure;
+typedef struct structure {
+    structure* pNext;
+    structure* pLast;
+    mustache_param* param;
+    standalone_data* standalone;
+    STRUCTURE_TYPE type;
+    uint32_t contentsFirst; // the first byte after the second '{'
+    uint32_t contentsEnd; // the first closing '}'
+} structure;
+
+typedef struct {
+    structure* pNext;
+    structure* pLast;
+    mustache_param* param;
+    standalone_data* standalone;
+    STRUCTURE_TYPE type;
+    uint32_t contentsFirst; // the first byte after the second '{'
+    uint32_t contentsEnd; // the first closing '}'
+} var_structure;
+
+typedef struct {
+    structure* pNext;
+    structure* pLast;
+    mustache_param* param;
+    standalone_data* standalone;
+    STRUCTURE_TYPE type;
+    uint32_t contentsFirst; // the first byte after the second '{'
+    uint32_t contentsEnd; // the first closing '}'
+
+    uint32_t interiorFirst; // the first byte of the interior
+    uint32_t interiorEnd; // the end of the interior - the first opening bracket of it's closing mustache '{{/name}}'
+
+    uint32_t curIdx; // current child index
+    mustache_param* curChild;
+} scoped_structure;
+
+typedef struct {
+    structure* pNext;
+    structure* pLast;
+    mustache_param* param;
+    standalone_data* standalone;
+    STRUCTURE_TYPE type;
+    uint32_t contentsFirst; // the first byte after the second '{'
+    uint32_t contentsEnd; // the first closing '}'
+    scoped_structure* parent;
+} close_structure;
+
+
+static void parent_stack_pop(parent_stack* stack)
 {
 #ifndef NDEBUG
     if (stack->count == 0) {
@@ -55,10 +119,13 @@ static void parent_stack_pop(parent_stack* stack, void* param)
     stack->count--;
 }
 
-static uint8_t parent_stack_push(parent_stack* stack, void* param)
+static uint8_t parent_stack_push(parent_stack* stack, scoped_structure* parent)
 {
 #ifndef NDEBUG
-    mustache_param* p = param;
+    if (!(parent->type == STRUCTURE_TYPE_SCOPED_CARET || parent->type == STRUCTURE_TYPE_SCOPED_POUND)) {
+        assert(00 && "parent_stack_push: param IS NOT A PARENT.");
+    }
+    mustache_param* p = parent->param;
     if (!(p->type == MUSTACHE_PARAM_LIST || p->type == MUSTACHE_PARAM_OBJECT)) {
         assert(00 && "parent_stack_push: param IS NOT A PARENT.");
     }
@@ -69,11 +136,24 @@ static uint8_t parent_stack_push(parent_stack* stack, void* param)
     }
 
     uint8_t** pointers = (uint8_t**)stack->buf.u;
-    pointers[stack->count] = (uint8_t*)param;
+    pointers[stack->count] = (uint8_t*)parent;
     stack->count++;
 
     return MUSTACHE_SUCCESS;
 };
+
+//returns the last structure on the stack.
+static scoped_structure* parent_stack_last(parent_stack* stack)
+{
+#ifndef NDEBUG
+    if (stack->count == 0) {
+        assert(00 && "parent_stack_last: INVALID CALL, stack.count MUST NOT BE EMPTY!");
+    }
+#endif // !NDEBUG
+
+    scoped_structure** pointers = (scoped_structure**)stack->buf.u;
+    return pointers[stack->count - 1];
+}
 
 
 
@@ -263,352 +343,6 @@ static uint8_t* dtoa(double value, uint8_t* buf, size_t size, uint16_t precision
     return buf;
 }
 
-void mustache_template_cache_init(mustache_cache* cache)
-{
-    memset(cache, 0, sizeof(mustache_cache));
-}
-
-bool mustache_check_cache(mustache_cache* cache, mustache_const_slice itemkey)
-{
-    return false;
-}
-
-static uint8_t mustache_cache_request_insertion_from_blocks(mustache_cache* cache, mustache_cache_lookup_block* prevFilledBlock,
-    mustache_cache_lookup_block* nextFilledBlock, uint32_t insertionSize/*in bytes*/)
-{
-
-    uint32_t lowerBound = 0;
-    uint32_t upperBound = (uint32_t)cache->entryBuffer.len;
-    lowerBound = prevFilledBlock->offset + prevFilledBlock->capacity;
-    upperBound = nextFilledBlock->offset;
-
-    uint32_t dist = upperBound - lowerBound;
-
-    return MUSTACHE_SUCCESS;
-}
-
-static uint8_t mustache_cache_request_block_resize(mustache_cache* cache, mustache_cache_lookup_block* blockToExpand, uint32_t newCapacity)
-{
-    // no lookup block exists for this item
-    // if no lookup block exists, find available space
-    const uint8_t firstByte = (uint8_t)(blockToExpand - cache->firstByteLookup);
-    // find the previous block which does not have have an capacity of 0
-    mustache_cache_lookup_block* prevFilledBlock = cache->firstByteLookup + firstByte;
-    mustache_cache_lookup_block* nextFilledBlock = cache->firstByteLookup + firstByte;
-
-    while (prevFilledBlock != cache->firstByteLookup)
-    {
-        prevFilledBlock--;
-        if (prevFilledBlock->capacity > 0) {
-            break;
-        }
-    }
-
-    while (nextFilledBlock != cache->firstByteLookup + array_count(cache->firstByteLookup) - 1)
-    {
-        nextFilledBlock++;
-        if (nextFilledBlock->capacity > 0) {
-            break;
-        }
-    }
-
-    uint32_t lowerBound = 0;
-    uint32_t upperBound = (uint32_t)cache->entryBuffer.len;
-
-    if (prevFilledBlock->capacity > 0) {
-        lowerBound = prevFilledBlock->offset + prevFilledBlock->capacity;
-    }
-    if (nextFilledBlock->capacity > 0) {
-        upperBound = nextFilledBlock->offset;
-    }
-
-    uint32_t availableCapacity = upperBound - lowerBound;
-    if (newCapacity <= availableCapacity) {
-        blockToExpand->capacity = newCapacity;
-        return MUSTACHE_SUCCESS;
-    }
-    else {
-        if (nextFilledBlock->capacity == 0) {
-            return MUSTACHE_ERR_NO_SPACE;
-        }
-
-        // first, get the last block that will allow a shift with enough distance
-        uint32_t distNeeded = (uint32_t)(newCapacity - blockToExpand->capacity);
-        uint32_t distAvailable = 0;
-        mustache_cache_lookup_block* last = NULL;
-        int16_t b;
-
-        if (blockToExpand->next) 
-        {
-            mustache_cache_lookup_block* next = blockToExpand;
-            while (next->next)
-            {
-                next = blockToExpand->next;
-                if (next->next == NULL) {
-                    // if next is the last block in the list
-                    distAvailable += (uint32_t)cache->entryBuffer.len - (next->offset + next->capacity);
-                    last = next; // block is the last block with contents
-                    break;
-                }
-                else {
-
-                    // skip ahead if next has contents
-                    b = (int16_t)(next - cache->firstByteLookup);
-
-                    distAvailable += (next->next->offset) - (next->offset + next->capacity);
-                    if (distAvailable > distNeeded) {
-                        last = next;
-                        break;
-                    }
-                }
-            }
-        } 
-        else {
-            distAvailable += (uint32_t)(cache->entryBuffer.len - (blockToExpand->offset + blockToExpand->capacity));
-            last = blockToExpand; // block is the last block with contents
-        }
-
-        if (!last || distAvailable < distNeeded) {
-            return MUSTACHE_ERR_NO_SPACE;
-        }
-
-        // there's enough space to resize
-        // beginning from the last block downwards, move data forwards to make room for the needed capacity
-
-        b = (int16_t)(last - cache->firstByteLookup);
-        mustache_cache_lookup_block* prevFilled = last;
-        for (; b >= 0; b--)
-        {
-            mustache_cache_lookup_block* block = cache->firstByteLookup + b;
-            if (block == blockToExpand) {
-                blockToExpand->capacity = newCapacity;
-                return MUSTACHE_SUCCESS;
-            }
-            uint32_t distToShift;
-            if (block == last) {
-                // LAST BLOCK
-                distToShift = distNeeded;
-            }
-            else {
-                distToShift = 0;
-                if (block->capacity > 0) {
-                    distToShift = (prevFilled->offset) - block->offset + block->capacity;
-
-                    prevFilled = block;
-                }
-            }
-            // shift entries ahead
-            if (distToShift > 0) {
-                uint8_t* dst = cache->entryBuffer.u + block->offset + distToShift;
-                uint8_t* src = cache->entryBuffer.u + block->offset;
-                memmove(dst, src, block->capacity);
-                char b2 = (char)(block - cache->firstByteLookup);
-                block->offset += distToShift;
-            }
-        }
-        blockToExpand->capacity = newCapacity;
-        return MUSTACHE_SUCCESS;
-    }
-    return MUSTACHE_ERR_NO_SPACE;
-}
-
-static inline mustache_cache_lookup_block* 
-get_next_block_with_contents(mustache_cache* cache, mustache_cache_lookup_block* block)
-{
-    mustache_cache_lookup_block* endBlock = (mustache_cache_lookup_block*)(cache->firstByteLookup + array_count(cache->firstByteLookup));
-    block++;
-    while (block < endBlock)
-    {
-        if (block->capacity > 0)
-        {
-            return block;
-        }
-        block++;
-    }
-
-    return NULL;
-}
-
-static inline void
-update_next_of_previous_block(mustache_cache* cache, mustache_cache_lookup_block* block)
-{
-#ifndef NDEBUG
-    if (block->capacity == 0) {
-        assert(00 && "update_next_of_previous_block MUST ONLY BE CALLED WITH A BLOCK OF A NON-ZERO CAPACITY");
-    }
-#endif // !NDEBUG
-
-    mustache_cache_lookup_block* cur = block;
-    while (cur != cache->firstByteLookup)
-    {
-        cur--;
-        if (cur->capacity) {
-            cur->next = block;
-            return;
-        }
-
-    }
-    return;
-}
-
-uint8_t mustache_cache_set_item(mustache_cache* cache, mustache_const_slice itemkey, mustache_cache_item item)
-{
-    if (itemkey.len==0)
-        return MUSTACHE_ERR;
-            
-    char firstbyte = itemkey.u[0];
-    if (cache->firstByteLookup[firstbyte].capacity>0)
-    {
-        // a lookup block already exists for this item
-        mustache_cache_lookup_block* block = &cache->firstByteLookup[firstbyte];
-        
-        // check if an entry exists in the block
-        
-        // write block
-        mustache_cache_entry* entries = (mustache_cache_entry*)(cache->entryBuffer.u + block->offset);
-        for (uint32_t ei = 0; ei < block->entryCount; ++ei)
-        {
-            if (itemkey.len == entries[ei].key.len && strneql(entries[ei].key.u, itemkey.u, itemkey.len)) {
-                // entry already exists, overwrite it
-                entries[ei].item = item;
-                return MUSTACHE_SUCCESS;
-            }
-        }
-        if (block->capacity/sizeof(mustache_cache_entry) < (block->entryCount+1)*sizeof(mustache_cache_entry)) {
-            // attempt expansion
-            uint32_t neededCapacity = u32_round_to_next_power_of_2((block->entryCount+1)* sizeof(mustache_cache_entry));
-
-            uint8_t err = mustache_cache_request_block_resize(cache, block, neededCapacity);
-            if (err) {
-                return err;
-            }
-
-            mustache_cache_entry* entries = (mustache_cache_entry*)(cache->entryBuffer.u + block->offset);
-            entries[block->entryCount].item = item;
-            entries[block->entryCount].key = itemkey;
-            block->entryCount++;
-        }
-        else {
-            mustache_cache_entry* entries = (mustache_cache_entry*)(cache->entryBuffer.u + block->offset);
-            entries[block->entryCount].item = item;
-            entries[block->entryCount].key = itemkey;
-            block->entryCount++;
-        }
-
-    } else {
-        // no lookup block exists for this item
-        // if no lookup block exists, find available space
-        mustache_cache_lookup_block* block = &cache->firstByteLookup[firstbyte];
-
-        // find the previous block which does not have have an capacity of 0
-        mustache_cache_lookup_block* prevFilledBlock = cache->firstByteLookup + firstbyte;
-        mustache_cache_lookup_block* nextFilledBlock = cache->firstByteLookup + firstbyte;
-        while (prevFilledBlock != cache->firstByteLookup)
-        {
-            prevFilledBlock--;
-            if (prevFilledBlock->capacity > 0) {
-                break;
-            }
-        }
-
-        while (nextFilledBlock != cache->firstByteLookup + array_count(cache->firstByteLookup) - 1)
-        {
-            nextFilledBlock++;
-            if (nextFilledBlock->capacity > 0) {
-                break;
-            }
-        }
-
-        uint32_t lowerBound = 0;
-        uint32_t upperBound = cache->entryBuffer.len;
-
-        if (prevFilledBlock->capacity > 0) {
-            lowerBound = prevFilledBlock->offset + prevFilledBlock->capacity;
-        }
-        if (nextFilledBlock->capacity > 0) {
-            upperBound = nextFilledBlock->offset;
-        }
-
-        uint32_t dist = upperBound-lowerBound;
-        if (sizeof(mustache_cache_entry) <= dist)  // we have enough space for an entry
-
-        {
-            block->next = get_next_block_with_contents(cache, block);
-            block->offset = lowerBound;
-            block->capacity = u32_round_to_next_power_of_2(sizeof(mustache_cache_entry));
-            block->entryCount = 1;
-            update_next_of_previous_block(cache, block);
-
-            mustache_cache_entry* entries = (mustache_cache_entry*)(cache->entryBuffer.u + block->offset);
-            entries[0].item = item;
-            entries[0].key = itemkey;
-            return MUSTACHE_SUCCESS;
-        }
-        else {
-            block->next = get_next_block_with_contents(cache, block);
-
-            // not enough space, request entry
-            const uint32_t neededCapacity = u32_round_to_next_power_of_2(block->capacity + sizeof(mustache_cache_entry));
-            MUSTACHE_RES err = mustache_cache_request_block_resize(cache, block, neededCapacity);
-            if (err) {
-                block->next = NULL;
-                return err;
-            }
-            block->offset = (uint32_t)lowerBound;
-            block->capacity = neededCapacity;
-            block->entryCount = 1;
-            update_next_of_previous_block(cache, block);
-
-            mustache_cache_entry* entries = (mustache_cache_entry*)(cache->entryBuffer.u + block->offset);
-            entries[0].item = item;
-            entries[0].key = itemkey;
-
-            return err;
-        }
-        int i=0;
-    }
-    return MUSTACHE_ERR;
-}
-
-uint8_t mustache_cache_remove_item(mustache_cache* cache, mustache_const_slice itemKey)
-{
-    if (itemKey.len == 0) {
-        return MUSTACHE_SUCCESS;
-    }
-
-    mustache_cache_lookup_block* block = cache->firstByteLookup + itemKey.u[0];
-    if (block->capacity == 0) {
-        return MUSTACHE_ERR_NONEXISTENT;
-    }
-
-    mustache_cache_entry* entry = (mustache_cache_entry*)(cache->entryBuffer.u + block->offset);
-    mustache_cache_entry* entryEnd = (mustache_cache_entry*)(entry + block->entryCount);
-
-    for (; entry < entryEnd; entry++)
-    {
-        if (entry->key.len != itemKey.len) {
-            continue;
-        }
-        if (strneql(entry->key.u, itemKey.u, itemKey.len))
-        {
-            // remove item
-            // shift everything about the entry down
-            memmove(entry - 1, entry, (entryEnd - entry - 1) * sizeof(*entry));
-            block->entryCount--;
-            if (block->entryCount == 0) {
-                block->capacity = 0;
-                block->offset = 0;
-                return MUSTACHE_SUCCESS;
-            }
-            block->capacity = u32_round_to_next_power_of_2(block->entryCount * sizeof(mustache_cache_entry));
-            return MUSTACHE_SUCCESS;
-        }
-    }
-
-    return MUSTACHE_SUCCESS;
-}
-
-
 
 static int fseek_callback(void* udata, int64_t whence, MUSTACHE_SEEK_DIR seekdir)
 {
@@ -654,6 +388,19 @@ uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filena
     return mustache_parse_stream(parser, &stream, streamCache, cacheMode, params, parseBuffer, sourceBuffer, uData, parseCallback);
 }
 
+static scoped_structure* get_scoped_close_parent(close_structure* close)
+{
+    structure* cur = (structure*)close;
+    cur = cur->pLast;
+    while (cur)
+    {
+        if (cur->param == close->param) {
+            return (scoped_structure*)cur;
+        }
+        cur = cur->pLast;
+    }
+    return NULL;
+}
 
 static uint8_t* get_truthy_close(mustache_const_slice paramName, uint8_t* cur, uint8_t* end)
 {
@@ -725,11 +472,11 @@ static uint8_t* get_line_end(uint8_t* line, uint8_t* searchEnd)
         }
         line++;
     }
-    return NULL;
+    return line;
 }
 
 static uint8_t* get_line_begin(uint8_t* line, uint8_t* searchBegin) {
-    while (line!=searchBegin-1)
+    while (line!=searchBegin)
     {
         if (*line == '\n') {
             line++;
@@ -755,33 +502,35 @@ static MUSTACHE_TYPE get_mustache_type(uint8_t* mustacheOpen) {
         return MUSTACHE_TYPE_VARIABLE;
     }
 }
-static bool is_line_standalone(uint8_t* line, uint8_t* lineEnd, uint8_t* mustacheIntBegin, uint8_t* mustacheIntLast)
+static bool is_line_standalone(uint8_t* line, uint8_t* lineEnd)
 {
-#ifndef NDEBUG
-    if (*mustacheIntBegin == '{' || *mustacheIntLast == '}') {
-        assert(00 && "is_line_standalone: mustacheIntBegin AND mustacheIntLast MUST BE POINTERS TO THE INTERIOR OF A MUSTACHE");
-    }
-#endif // !NDEBUG
-
-    mustacheIntBegin -= 2;
-    while (line < mustacheIntBegin)
-    {
-        if (!isspace(*line)) {
-            return false;
-        }
-        line++;
-    }
-
-    mustacheIntLast += 3;
-    line = mustacheIntLast;
+    bool isInMustache = false;
     while (line < lineEnd)
     {
-        if (!isspace(*line)) {
+        if (line < lineEnd - 2) {
+            if (*line == '{' && *(line + 1) == '{')
+            {
+                uint8_t prefix = *(line + 2);
+                if (!(prefix == '#' || prefix == '^' || prefix == '!' || prefix == '/'))
+                {
+                    return false;
+                }
+                isInMustache = true;
+            }
+            if (*(line + 1) == '}' && *(line + 2) == '}')
+            {
+                isInMustache = false;
+                line += 3;
+                if (line >= lineEnd) {
+                    return true;
+                }
+            }
+        }
+        if (!isInMustache && !isspace(*line)) {
             return false;
         }
         line++;
     }
-
     return true;
 }
 
@@ -809,11 +558,14 @@ static bool is_mustache_close(uint8_t* s) {
     return false;
 }
 
-static mustache_param* get_parameter(uint8_t* nameBegin, uint8_t nameLen, mustache_param* globalParams, parent_stack* parentStack)
+static mustache_param* get_parameter(const uint8_t* nameBegin, const uint8_t* nameEnd, mustache_param* globalParams, parent_stack* parentStack)
 {
     // TRAVERSE PARENT STACK
+    uint16_t nameLen = nameEnd - nameBegin;
     for (int32_t i = parentStack->count-1; i >= 0; i--) {
-        mustache_param* parentNode = ((mustache_param**)parentStack->buf.u)[i];
+        scoped_structure* structNode = ((scoped_structure**)parentStack->buf.u)[i];
+        mustache_param* parentNode = structNode->param;
+
         mustache_param* node;
         uint32_t MAX_COUNT;
 
@@ -930,293 +682,486 @@ static uint8_t* write_variable(mustache_param* paramBASE, uint8_t* outputHead, u
     return outputHead;
 }
 
-static uint8_t evaluate_parameter(mustache_slice sourceBuffer, uint8_t* sourceEnd, mustache_template_cache* cache, MUSTACHE_CACHE_MODE cacheMode, mustache_param* paramBase, 
-    uint8_t** outputHead, uint8_t* outputEnd, uint8_t* mustacheOpen, uint8_t** mustacheClose, uint8_t type, uint8_t** truthyClose, uint32_t arrIndex, parent_stack* parentStack)
+static uint8_t is_parent(mustache_param* param) {
+    if (param->type == MUSTACHE_PARAM_LIST || param->type == MUSTACHE_PARAM_OBJECT) {
+        return true;
+    }
+    return false;
+}
+
+
+static uint8_t* get_mustache_close(uint8_t* inputHead, uint8_t* inputEnd) {
+    while (inputHead < inputEnd)
+    {
+        if (is_mustache_close(inputHead)) {
+            return inputHead;
+        }
+        inputHead++;
+    }
+    return NULL;
+}
+
+static uint8_t* get_scoped_interior_end(uint8_t* interiorFirst, uint8_t* end)
 {
-    uint16_t mustacheLen = *mustacheClose - mustacheOpen + 1;
-    paramBase = get_parameter(mustacheOpen, mustacheLen, paramBase, parentStack);
-    if (!paramBase) {
-        return MUSTACHE_ERR_NONEXISTENT;
-    }
-
-  
-    // LIST PARAM
-    if (paramBase->type == MUSTACHE_PARAM_LIST)
+    uint32_t no = 1;
+    while (interiorFirst <end)
     {
-        mustache_param_list* param = (mustache_param_list*)paramBase;
-        mustache_param* curParam=param->pValues;
-
-        uint8_t* searchPtr = *mustacheClose;
-        // technically this is a loop close, not truthy/conditional
-        *truthyClose = get_truthy_close(paramBase->name, *mustacheClose, sourceEnd);
-        uint8_t* mOpen = searchPtr;
-        uint8_t* mClose = NULL;
-        while (searchPtr < *truthyClose - 2) {
-            if (is_mustache_open(searchPtr)) {
-                mOpen = searchPtr;
-                break;
+        uint8_t prefix = *(interiorFirst + 2);
+        if (is_mustache_open(interiorFirst) && (prefix=='#' || prefix=='^')) {
+            no++;
+            interiorFirst += 2;
+        }
+        else if (is_mustache_open(interiorFirst) && prefix=='/') {
+            no--;
+            if (no == 0) {
+                return interiorFirst;
             }
-            searchPtr++;
-        }
-        if (mOpen == *mustacheClose) {
-            return MUSTACHE_ERR_INVALID_TEMPLATE;
         }
 
-        while (searchPtr < *truthyClose - 2)
-        {
-            if (is_mustache_close(searchPtr)) {
-                mClose = searchPtr;
-                break;
-            }
-            searchPtr++;
-        }
-        if (mClose == NULL) {
-            return MUSTACHE_ERR_INVALID_TEMPLATE;
-        }
-
-        if (parent_stack_push(parentStack, param)) {
-            return MUSTACHE_ERR_OVERFLOW;
-        }
-
-        uint8_t* truthyInteriorBegin = mustacheOpen + 2 + param->name.len;
-        uint8_t* truthyInteriorLast = *truthyClose - 1;
-
-
-
-        mOpen += 2;
-        mClose -= 1;
-        uint16_t paramLen = mClose - mOpen + 1;
-        uint32_t i = 0;
-        while (curParam&& i < param->valueCount && searchPtr < sourceEnd)
-        {
-            if (paramLen == 1 && mOpen[0]=='.') {
-                // write the txt before the {{.}}
-                uint32_t dist = (mOpen-2) - truthyInteriorBegin;
-                memcpy(*outputHead, truthyInteriorBegin, dist);
-                *outputHead += dist;
-
-                // write var
-                *outputHead = write_variable(curParam, *outputHead, outputEnd);
-                // write the txt after the {{.}}
-                dist = truthyInteriorLast - (mClose+3);
-                memcpy(*outputHead, mClose + 3, dist);
-                *outputHead += dist;
-            }
-            else {
-                // EVALUATE PARAM
-            }
-
-            curParam = curParam->pNext;
-            ++i;
-        }
-
-        parent_stack_pop(parentStack, param);
-
-        // MOVE INPUT HEAD
-        *truthyClose = *truthyClose + 2 + param->name.len;
-        *mustacheClose = *truthyClose;
-
-
+        interiorFirst++;
     }
-    // STRING PARAM
-    else if (paramBase->type == MUSTACHE_PARAM_STRING)
+    return NULL;
+}
+
+static bool is_truthy(mustache_param* p)
+{
+    if (p->type == MUSTACHE_PARAM_STRING) {
+        mustache_param_string* param = (mustache_param_string*)p;
+        if (param->str.len > 0) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+    else if (p->type == MUSTACHE_PARAM_BOOLEAN) {
+        mustache_param_boolean* param = (mustache_param_boolean*)p;
+        return param->value;
+    }
+    else if (p->type == MUSTACHE_PARAM_NUMBER) {
+        mustache_param_number* param = (mustache_param_number*)p;
+        return (bool)param->value;
+    }
+    else if (p->type == MUSTACHE_PARAM_LIST) {
+        mustache_param_list* param = (mustache_param_list*)p;
+        return param->valueCount;
+    }
+    if (p) {
+        return true;
+    }
+    return false;
+}
+
+static uint8_t source_to_structured(mustache_parser* parser, structure* structureRoot, uint8_t* inputFirst, uint8_t* inputHead, uint8_t* inputEnd)
+{
+    structure* last_struct = structureRoot;
+    while (inputHead<inputEnd)
     {
-        *outputHead = write_variable(paramBase, *outputHead, outputEnd);
-        if (cache && cacheMode & MUSTACHE_CACHE_MODE_WRITE) {
-            stream_cache_add_var(cache, sourceBuffer, mustacheOpen, *mustacheClose, NULL);
-        }
-    }
-    // NUMBER PARAM
-    else if (paramBase->type == MUSTACHE_PARAM_NUMBER)
-    {
-        *outputHead = write_variable(paramBase, *outputHead, outputEnd);
-        if (cache && cacheMode & MUSTACHE_CACHE_MODE_WRITE) {
-            stream_cache_add_var(cache, sourceBuffer, mustacheOpen, *mustacheClose, NULL);
-        }
-    }
-    // BOOLEAN PARAM
-    else if (paramBase->type == MUSTACHE_PARAM_BOOLEAN) {
-        mustache_param_boolean* param = (mustache_param_boolean*)paramBase;
-
-        if (type != MUSTACHE_TYPE_VARIABLE)
+        if (is_mustache_open(inputHead))
         {
-            *truthyClose = get_truthy_close(paramBase->name, *mustacheClose, sourceEnd);
-            if (!truthyClose) {
-                return MUSTACHE_ERR_INVALID_TEMPLATE;
-            }
-            uint8_t* interiorFirst = *mustacheClose + 3;
-            uint8_t* interiorLast = *truthyClose;
+            uint8_t* first = inputHead+2;
+            uint8_t* end = get_mustache_close(first, inputEnd);
+            structure* mstruct = NULL;
 
-
-
-            bool standlone = false;
-            uint8_t* lineEnd;
-            // check if the starting cond. line is standalone. If so, skip it.
-            uint8_t* lineBeg = get_line_begin(mustacheOpen, sourceBuffer.u);
-            lineEnd = get_line_end(mustacheOpen, sourceEnd);
-            if (lineEnd) {
-                standlone = is_line_standalone(lineBeg, lineEnd, mustacheOpen - 1, *mustacheClose);
-                if (standlone) {
-                    *mustacheClose = lineEnd;
+            if (*first == '/' || *first == '!')
+            {
+                if (*first == '/') {
+                    mstruct = parser->alloc(parser, sizeof(close_structure));
+                    if (!mstruct) {
+                        return MUSTACHE_ERR_ALLOC;
+                    }
+                    mstruct->type = STRUCTURE_TYPE_CLOSE;
+                    close_structure* asClosed = (close_structure*)mstruct;
+                    asClosed->parent = NULL;
+                }
+                else {
+                    mstruct = parser->alloc(parser, sizeof(structure));
+                    if (!mstruct) {
+                        return MUSTACHE_ERR_ALLOC;
+                    }
+                    mstruct->type = STRUCTURE_TYPE_COMMENT;
+                }
+                mstruct->param = NULL;
+                mstruct->pNext = NULL;
+           
+                // check if it's standalone
+                bool standlone = false;
+                uint8_t* lineEnd;
+                // check if the starting cond. line is standalone. If so, skip it.
+                uint8_t* lineBeg = get_line_begin(first, inputFirst);
+                lineEnd = get_line_end(first, inputEnd);
+                if (lineEnd) {
+                    standlone = is_line_standalone(lineBeg, lineEnd);
+                    if (standlone) {
+                      
+                        mstruct->standalone = parser->alloc(parser,sizeof(standalone_data));
+                        if (!mstruct->standalone) {
+                            return MUSTACHE_ERR_ALLOC;}
+                        mstruct->standalone->lineBegin = lineBeg - inputFirst;
+                        mstruct->standalone->lineEnd = lineEnd - inputFirst;
+                    }
+                    else {
+                        mstruct->standalone = NULL;
+                    }
+                }
+                else {
+                    mstruct->standalone = NULL;
                 }
             }
+            else if (*first == '^' || *first == '#')
+            {
+                mstruct = parser->alloc(parser, sizeof(scoped_structure));
+                mstruct->param = NULL;
+                mstruct->pNext = NULL;
+                if (!mstruct) {
+                    return MUSTACHE_ERR_ALLOC; }
 
-            // check if the ending cond. line is standalone. If so, skip it.
-            lineBeg = get_line_begin(*truthyClose, sourceBuffer.u);
-            lineEnd = get_line_end(*truthyClose, sourceEnd);
-            if (lineEnd) {
-                standlone = is_line_standalone(lineBeg, lineEnd,*truthyClose+2, *truthyClose+2+param->name.len);
-                if (standlone) {
-                    *mustacheClose = lineEnd-3;
+                if (*first == '^') {
+                    mstruct->type = STRUCTURE_TYPE_SCOPED_CARET;
                 }
-            }
-            if ((type == MUSTACHE_TYPE_POUND && param->value) || (type == MUSTACHE_TYPE_FALSY && !param->value)) {
-                // IF CONDITION IS TRUE
-                *truthyClose = *truthyClose + 2 + param->name.len;
+                else {
+                    mstruct->type = STRUCTURE_TYPE_SCOPED_POUND;
+                }
+
+                // check if it's standalone
+                bool standlone = false;
+                uint8_t* lineEnd;
+                // check if the starting cond. line is standalone. If so, skip it.
+                uint8_t* lineBeg = get_line_begin(first, inputFirst);
+                lineEnd = get_line_end(first, inputEnd);
+                if (lineEnd) {
+                    standlone = is_line_standalone(lineBeg, lineEnd);
+                    if (standlone) {
+
+                        mstruct->standalone = parser->alloc(parser, sizeof(standalone_data));
+                        if (!mstruct->standalone) {
+                            return MUSTACHE_ERR_ALLOC;
+                        }
+                        mstruct->standalone->lineBegin = lineBeg - inputFirst;
+                        mstruct->standalone->lineEnd = lineEnd - inputFirst;
+                    }
+                    else {
+                        mstruct->standalone = NULL;
+                    }
+                }
+                else {
+                    mstruct->standalone = NULL;
+                }
+
+                scoped_structure* asScoped = (scoped_structure*)mstruct;
+                asScoped->interiorFirst = end - inputFirst + 2;
+                uint8_t* int_end = get_scoped_interior_end(end+2,inputEnd);
+                if (!int_end) {
+                    asScoped->interiorEnd = 0;
+                    return MUSTACHE_ERR_INVALID_TEMPLATE;
+                }
+                asScoped->interiorEnd = int_end - inputFirst;
             }
             else {
-                // IF CONDITION IS FALSE
-                *truthyClose = *truthyClose + 2 + param->name.len;
-                *mustacheClose = *truthyClose;
-                goto skip;
+                mstruct = parser->alloc(parser, sizeof(var_structure));
+                mstruct->param = NULL;
+                mstruct->pNext = NULL;
+                if (!mstruct) {
+                    return MUSTACHE_ERR_ALLOC; }
+
+                mstruct->type = STRUCTURE_TYPE_VAR;
             }
 
+            mstruct->contentsFirst = first - inputFirst;
+            mstruct->contentsEnd = end - inputFirst;
+
+            inputHead = end + 1;
+
+            last_struct->pNext = mstruct;
+            mstruct->pLast = last_struct;
+            last_struct = mstruct;
         }
-        else {
-            *outputHead = write_variable(paramBase, *outputHead, outputEnd);
-            if (cache && cacheMode & MUSTACHE_CACHE_MODE_WRITE) {
-                stream_cache_add_var(cache, sourceBuffer, mustacheOpen, *mustacheClose, NULL);
-            }
-        }
+        
+        inputHead++;
     }
-  
-skip:
+    
     return MUSTACHE_SUCCESS;
 }
 
-/*
-uint8_t mustache_parse_from_cache(mustache_parser* parser, mustache_stream* stream, mustache_template_cache* cache,
-    mustache_param* params, mustache_slice sourceBuffer, mustache_slice outputBuffer, void* uData, mustache_parse_callback parseCallback)
+
+static uint8_t* mwrite(uint8_t* outputHead, uint8_t* outputEnd, const uint8_t* sourceBeg, const uint8_t* sourceEnd)
+{
+    if (sourceBeg > sourceEnd) {
+        return outputHead;
+    }
+    
+    size_t a = sourceEnd - sourceBeg;
+    size_t b = outputEnd - outputHead;
+    size_t s = min((sourceEnd- sourceBeg), (outputEnd- outputHead));
+    memcpy(outputHead, sourceBeg, s);
+    return outputHead+s;
+}
+
+
+void eval_jump(structure* mstruct, const uint8_t* m_name_first, const uint8_t* m_name_end, const uint8_t* input, uint8_t* outputEnd, uint8_t** outputHead, const uint8_t** lastNonEscaped) {
+    if (mstruct->standalone) {
+        const uint8_t* t = input + mstruct->standalone->lineBegin;
+        if (t > *lastNonEscaped) {
+            *outputHead = mwrite(*outputHead, outputEnd, *lastNonEscaped, t);
+        }
+        *lastNonEscaped = input + mstruct->standalone->lineEnd + 1;
+    }
+    else {
+        const uint8_t* t = m_name_first - 3;
+        if (t > *lastNonEscaped) {
+            *outputHead = mwrite(*outputHead, outputEnd, *lastNonEscaped, t);
+        }
+        *lastNonEscaped = m_name_end + strlen("{{");
+    }
+}
+
+static mustache_param* resolve_param_member(mustache_param* root, const uint8_t* strFirst, const uint8_t* strEnd)
 {
 #ifndef NDEBUG
-    memset(sourceBuffer.u, 0, sourceBuffer.len);
-    memset(outputBuffer.u, 0, outputBuffer.len);
+    if (*strFirst !='.') {
+        assert(00 && "resolve_param_member: strFirst must be a string parameter chain, i.e. '.member.name'");
+    }
 #endif // !NDEBUG
 
-   
-    size_t readBytes = stream->readCallback(stream->udata, sourceBuffer.u, sourceBuffer.len);
-
-    if (readBytes < 4 || readBytes >= UINT32_MAX - 3) {
-        return MUSTACHE_ERR_ARGS;
+    if (strFirst+1 == strEnd) {
+        return root;
     }
 
+    const uint8_t* cur = strFirst;
+
+    mustache_param* param = root;
+    const uint8_t* lastDot = cur;
+    cur++;
+    while (cur <= strEnd)
+    {
+        if (*cur == '.' || cur == strEnd)
+        {    
+            const uint8_t* nameBegin = lastDot + 1;
+            const uint8_t* nameEnd = cur;
+            uint32_t nameLen = nameEnd - nameBegin;
+
+            uint32_t i;
+            if (param->type == MUSTACHE_PARAM_LIST) {
+                mustache_param_list* asList = (mustache_param_list*)param;
+                i = asList->valueCount;
+            }
+            else {
+                i = UINT32_MAX;
+            }
+
+            param = ((mustache_param_list*)param)->pValues;
+            while (param && i > 0)
+            {
+                if (nameLen == param->name.len && strneql(nameBegin, param->name.u, nameLen)) {
+                    break;
+                }
+                param = param->pNext;
+                i--;
+            }
+
+            if (!param) {
+                return NULL;
+            }
+            lastDot = cur;
+        }
+        cur++;
+    }
+
+    return param;
+}
+
+uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_const_slice inputBuffer, uint8_t* inputEnd, structure* structureRoot, 
+                         mustache_param* globalParams, parent_stack* parentStack)
+{
+    structure* mstruct = structureRoot->pNext; // SKIP ROOT
+
+    // INPUT
+    const uint8_t* inputHead = inputBuffer.u;
+    const uint8_t* input=inputBuffer.u;
+
+    // OUTPUT
     uint8_t* outputHead = outputBuffer.u;
-    uint8_t* inputHead = sourceBuffer.u;
-    uint8_t* sourceEnd = sourceBuffer.u + sourceBuffer.len;
     uint8_t* outputEnd = outputBuffer.u + outputBuffer.len;
 
-    for (uint32_t i = 0; i < cache->varCount; ++i)
+    const uint8_t* lastNonEscaped = inputHead;
+    while (mstruct)
     {
-        mustache_var_info* varInfo = (mustache_var_info*)cache->varBuffer.u + i;
-        if (varInfo->begOffset < 2) {
-            return MUSTACHE_ERR_INVALID_CACHE;
-        }
+        if (mstruct->type == STRUCTURE_TYPE_VAR) 
+        {
+            const uint8_t* m_name_first = input + mstruct->contentsFirst;
+            const uint8_t* m_name_end = input + mstruct->contentsEnd;
+            const uint32_t nameLen = m_name_end - m_name_first;
 
-        uint32_t A = (inputHead - sourceBuffer.u);
-        if (varInfo->begOffset<2 || A>(varInfo->begOffset)) {
-            continue;
-        }
-        uint32_t dist = (varInfo->begOffset) - A - 2;
+            outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, m_name_first - 2);
+            lastNonEscaped = m_name_end + strlen("{{");
 
-        memcpy(outputHead, inputHead, dist);
-        inputHead = sourceBuffer.u + varInfo->begOffset;
-        outputHead += dist;
-
-        uint8_t* mustacheOpen = inputHead;
-        uint8_t* mustacheClose = sourceBuffer.u + varInfo->lastOffset;
-        uint16_t mustacheLen = (mustacheClose - mustacheOpen) + 1;
-
-        if (*mustacheOpen == '!') { // skip comments
-            uint8_t* le = get_line_end(inputHead, sourceEnd);
-            if (is_line_standalone(get_line_begin(inputHead,sourceBuffer.u),le)) {
-                inputHead = le + 1;
+            // HANDLE '.' CASE
+            if (*m_name_first == '.')
+            {
+                scoped_structure* parent = parent_stack_last(parentStack);
+                mustache_param* m_child = parent->curChild;
+                // resolve '.' or chains '.member.name'
+                mustache_param* member = resolve_param_member(m_child, m_name_first, m_name_end);
+                if (member) {
+                    outputHead = write_variable(member, outputHead, outputEnd);
+                }
             }
-            inputHead += mustacheLen + 2;
-            continue;
+            else if (!mstruct->param) {
+                mstruct->param = get_parameter(m_name_first, m_name_end, globalParams, parentStack);
+                if (!mstruct->param) {
+                    goto skip_node;
+                }
+                outputHead = write_variable(mstruct->param, outputHead, outputEnd);
+            }
+        }
+        else if (mstruct->type == STRUCTURE_TYPE_SCOPED_CARET || mstruct->type == STRUCTURE_TYPE_SCOPED_POUND) {
+            scoped_structure* asScoped = (scoped_structure*)mstruct;
+        
+            const uint8_t* m_name_first = input + mstruct->contentsFirst+1;
+            const uint8_t* m_name_end = input + mstruct->contentsEnd;
+
+            if (!mstruct->param) {
+                mstruct->param = get_parameter(m_name_first, m_name_end, globalParams, parentStack);
+                if (!mstruct->param) {
+                    goto skip_node;
+                }
+            }
+
+            asScoped->curIdx = 0;
+            
+            if (mstruct->type == STRUCTURE_TYPE_SCOPED_POUND && is_parent(mstruct->param)) 
+            {
+                parent_stack_push(parentStack, asScoped);
+
+                mustache_param_object* pAsObj = (mustache_param_object*)asScoped->param;
+                asScoped->curChild = pAsObj->pMembers;
+
+                if (mstruct->standalone) {
+                    const uint8_t* t = input + mstruct->standalone->lineBegin;
+                    outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
+                    lastNonEscaped = input + mstruct->standalone->lineEnd + strlen("\n");
+                }
+                else {
+                    const uint8_t* t = m_name_first - strlen("{{x");
+                    outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
+                    lastNonEscaped = m_name_end + strlen("{{");
+                }
+            } 
+            else if (mstruct->type == STRUCTURE_TYPE_SCOPED_POUND || mstruct->type==STRUCTURE_TYPE_SCOPED_CARET) 
+            {
+                
+                bool truthy = is_truthy(mstruct->param);
+                if ((mstruct->type == STRUCTURE_TYPE_SCOPED_POUND && truthy) || (mstruct->type == STRUCTURE_TYPE_SCOPED_CARET && !truthy))
+                {
+                    if (mstruct->standalone) {
+                        const uint8_t* t = input + mstruct->standalone->lineBegin;
+                        outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
+                        lastNonEscaped = input + mstruct->standalone->lineEnd + strlen("\n");
+                    }
+                    else {
+                        const uint8_t* t = m_name_first - strlen("{{x");
+                        outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
+                        lastNonEscaped = m_name_end + strlen("{{");
+                    }
+                }
+                else {
+                    uint32_t nameLen = m_name_end - m_name_first;
+                    const uint8_t* t;
+                    if (mstruct->standalone) {
+                        t = input + mstruct->standalone->lineBegin;
+                    } else {
+                        t = m_name_first - strlen("{{x");
+                        //outputHead=write_identation(outputHead, );
+                    }
+                    outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
+                    lastNonEscaped = input + asScoped->interiorEnd+nameLen+strlen("{{x}}");
+                    int i = 0;
+                }
+            }
+        }
+        else if (mstruct->type == STRUCTURE_TYPE_COMMENT || mstruct->type == STRUCTURE_TYPE_CLOSE) 
+        {
+            const uint8_t* m_name_first = input + mstruct->contentsFirst+1;
+            const uint8_t* m_name_end = input + mstruct->contentsEnd;
+
+            if (mstruct->type == STRUCTURE_TYPE_CLOSE)
+            {
+                if (!mstruct->param) {
+                    mstruct->param = get_parameter(m_name_first, m_name_end, globalParams, parentStack);
+                }
+
+                close_structure* asClose = (close_structure*)mstruct;
+                if (!asClose->parent) {
+                    asClose->parent = get_scoped_close_parent(asClose);
+                }
+                if (!asClose->parent) {
+                    return MUSTACHE_ERR_INVALID_TEMPLATE;
+                }
+
+                scoped_structure* parent = asClose->parent;
+
+                if (parent->param) {
+                    if (parent->param->type == MUSTACHE_PARAM_LIST)
+                    {
+                        mustache_param_list* param = (mustache_param_list*)parent->param;
+                        parent->curIdx++;
+                        parent->curChild = parent->curChild->pNext;
+                        if (parent->curIdx < param->valueCount && parent->curChild)
+                        {
+
+                            eval_jump(mstruct, m_name_first, m_name_end, input, outputEnd, &outputHead, &lastNonEscaped);
+                            //outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, m_name_first - strlen("{{/"));
+                            // go to parent next again
+                            mstruct = (structure*)parent;
+                            eval_jump(mstruct, m_name_first, m_name_end, input, outputEnd, &outputHead, &lastNonEscaped);
+                            goto skip_node;
+                        }
+                        else if (mstruct->param && is_parent(mstruct->param)) {
+                            parent_stack_pop(parentStack);
+                        }
+                    }
+                }
+
+
+            }
+
+            eval_jump(mstruct, m_name_first, m_name_end, input, outputEnd, &outputHead, &lastNonEscaped);
         }
 
-        uint8_t truthyState = 0; // 0: none
-                                 // 1: truthy
-                                 // 2: inverted truthy
-        if (*mustacheOpen == '#') {
-            mustacheOpen++;
-            mustacheLen--;
-            truthyState = 1;
-        }
-        else if (*mustacheOpen == '^') {
-            mustacheOpen++;
-            mustacheLen--;
-            truthyState = 2;
-        }
-
-        uint8_t* truthyClose;
-        evaluate_parameter(
-            sourceBuffer, sourceEnd, NULL,
-            MUSTACHE_CACHE_MODE_NONE, params, &outputHead,
-            outputEnd, mustacheOpen, &mustacheClose,
-            mustacheLen, truthyState, &truthyClose,
-            0, NULL
-        );
-
-        if (truthyState != 0) {
-            inputHead = truthyClose+3;
-            int i=0;
-        }
-        else {
-            inputHead = mustacheClose + 3;
-        }
+    skip_node:
+        mstruct = mstruct->pNext;
     }
 
-    uint32_t a = inputHead - sourceBuffer.u;
-    uint32_t dist = (sourceBuffer.u + readBytes - inputHead);
-    memcpy(outputHead, inputHead, dist);
-    outputHead += dist;
 
-
-    mustache_slice parsedSlice = {
-        .u = outputBuffer.u,
-        .len = outputHead - outputBuffer.u,
-    };
-    parseCallback(parser, uData, parsedSlice);
-
+    outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, inputEnd);
+    *oh = outputHead;
     return MUSTACHE_SUCCESS;
 }
-*/
+
+static void free_structure_chain(mustache_parser* p, structure* root)
+{
+    root = root->pNext;
+    while (root)
+    {
+
+        structure* next = root->pNext;
+        p->free(p,root);
+        root = next;
+    }
+}
 
 uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, mustache_template_cache* streamCache, MUSTACHE_CACHE_MODE cacheMode,
-    mustache_param* params, mustache_slice sourceBuffer, mustache_slice outputBuffer, void* uData, mustache_parse_callback parseCallback)
+    mustache_param* params, mustache_slice inputBuffer, mustache_slice outputBuffer, void* uData, mustache_parse_callback parseCallback)
 {
-    if (streamCache) {
-        streamCache->privMAX_VAR_COUNT = (uint32_t)(streamCache->varBuffer.len / sizeof(mustache_var_info));
-        if (cacheMode & MUSTACHE_CACHE_MODE_READ) {
-            uint8_t err=0;
-            //uint8_t err = mustache_parse_from_cache(parser, stream, streamCache, params, sourceBuffer, outputBuffer, uData, parseCallback);
-            if (err != MUSTACHE_ERR_INCOMPLETE) {
-                return err;
-            }
-        }
-    }
-
-    uint8_t* inputHead = sourceBuffer.u;
-    uint8_t* inputBeg = sourceBuffer.u;
-    uint8_t* inputEnd = sourceBuffer.u + sourceBuffer.len;
+    uint8_t* inputHead = inputBuffer.u;
+    uint8_t* inputBeg = inputBuffer.u;
     uint8_t transientBuffer[2048];
     uint16_t transientBufferLen = 0;
 
     uint8_t* mustacheOpen = NULL;
-    uint8_t* mustacheClose = sourceBuffer.u;
+    uint8_t* mustacheClose = inputBuffer.u;
 
-    size_t readBytes = stream->readCallback(stream->udata, sourceBuffer.u, sourceBuffer.len);
+    size_t readBytes = stream->readCallback(stream->udata, inputBuffer.u, inputBuffer.len);
+    uint8_t* inputEnd = inputBuffer.u + readBytes;
 
     if (readBytes < 4 || readBytes >= UINT32_MAX-3) {
         return MUSTACHE_ERR_ARGS;
@@ -1225,269 +1170,45 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, 
     uint8_t* outputHead = outputBuffer.u;
     uint8_t* outputEnd = outputBuffer.u + outputBuffer.len;
 
-    parent_stack parStack = {
+    parent_stack parentStack = {
         .buf = parser->parentStackBuf,
         .count = 0,
         .MAX_COUNT = parser->parentStackBuf.len / sizeof(void*)
     };
 
-    
-    uint8_t* lastInputHead = inputHead;
-    while (inputHead < inputEnd)
-    {
-        if (is_mustache_open(inputHead))
-        {
-            if (mustacheClose <= inputHead) {
-                size_t s = inputHead - mustacheClose;
-                memcpy(outputHead, mustacheClose, s);
-                outputHead += s;
-                mustacheOpen = inputHead + 2;
-            }
-
-            
-
-            // get mustache close
-            while (inputHead < inputEnd)
-            {
-                if (is_mustache_close(inputHead))
-                {
-                    mustacheClose = inputHead - 1;
-
-                    MUSTACHE_TYPE type = get_mustache_type(mustacheOpen);
-                    if (type == MUSTACHE_TYPE_COMMENT || type == MUSTACHE_TYPE_CLOSE) {
-                    }
-                    else if (type == MUSTACHE_TYPE_VARIABLE) {
-                        uint8_t* tc;
-                        // evaluate
-                        evaluate_parameter(
-                            sourceBuffer, inputEnd, streamCache,
-                            cacheMode, params, &outputHead,
-                            outputEnd, mustacheOpen, &mustacheClose,
-                            type, &tc, 0, &parStack
-                        );
-                    }
-                    else 
-                    {
-                        mustacheOpen++; // skip prefix ('!', '^', '#', '/')
-
-                        uint8_t* tc=NULL;
-                        // evaluate
-                        evaluate_parameter(
-                            sourceBuffer, params, &inputHead, &outputHead,
-                            outputEnd, mustacheOpen, &mustacheClose,
-                            type, &tc, 0, &parStack
-                        );
-                    }
-
-                    inputHead = mustacheClose;
-                    break;
-                }
-                inputHead++;
-            }
-        }
-
-        inputHead++;
+    structure structureRoot = { .type=STRUCTURE_TYPE_ROOT }; 
+    uint8_t err = source_to_structured(parser, &structureRoot, inputBuffer.u,inputHead,inputEnd);
+    if (err) {
+        return err;
     }
 
+    err = write_structured(
+        outputBuffer, &outputHead,
+        (mustache_const_slice){ inputBuffer.u,inputBuffer.len },
+        inputBuffer.u + readBytes,
+        &structureRoot, params, &parentStack
+    );
+
+    if (err) {
+        return err;
+    }
+
+    free_structure_chain(parser,&structureRoot);
 
 
-    /*
-    while (true)
-    {
-        // look for {{}};
-        for (uint32_t i = 0; i < sourceBuffer.len+1; ++i)
-        {
-            if (sourceBuffer.u[i] == '{' &&
-                sourceBuffer.u[i+1] == '{')
-            {
-                size_t s;
-                if (mustacheClose > sourceBuffer.u + i) {
-                    s = 0;
-                } else {
-                    s = sourceBuffer.u + i - mustacheClose;
-                }
-                memcpy(outputHead, mustacheClose, s);
-                mustacheOpen = sourceBuffer.u + i + 2;
-                outputHead += s; 
-
-                for (uint32_t j = i + 2; j < sourceBuffer.len; ++j) {
-                    if (sourceBuffer.u[j - 1] == '}' &&
-                        sourceBuffer.u[j] == '}')
-                    {
-                        mustacheClose = sourceBuffer.u + j - 2;
-
-                        if (*mustacheOpen == '!') { // skip comments
-                            uint8_t* le = get_line_last(inputHead, sourceEnd);
-                            if (is_line_standalone(get_line_begin(inputHead, sourceBuffer.u), le)) {
-                                inputHead = le + 1;
-                            }
-
-                            if (streamCache && cacheMode & MUSTACHE_CACHE_MODE_WRITE) {
-                                stream_cache_add_var(streamCache, sourceBuffer, mustacheOpen, mustacheClose, NULL);
-                            }
-                            break;
-                        }
-                      
-                        uint8_t truthyState = 0; // 0: none
-                                                 // 1: truthy
-                                                 // 2: inverted truthy
-                        if (*mustacheOpen == '#') {
-                            mustacheOpen++;
-                            truthyState = 1;
-                        }
-                        else if (*mustacheOpen == '^') {
-                            mustacheOpen++;
-                            truthyState = 2;
-                        }
-                        uint16_t mustacheLen = (mustacheClose - mustacheOpen) + 1;
-
-                        uint8_t* tc;
-                        evaluate_parameter(
-                            sourceBuffer, sourceEnd, streamCache,
-                            cacheMode, params, &outputHead,
-                            outputEnd, mustacheOpen, &mustacheClose,
-                            mustacheLen, truthyState, &tc,
-                            0, &parStack
-                        );
-                        mustacheClose += 3;
-                        j = (uint32_t)(mustacheClose - sourceBuffer.u);
 
 
-                        mustacheOpen = NULL;
-                        i = j;
-                        break;
-                    }
-                }
-            }
-        }
-        if (mustacheOpen) {
-            transientBufferLen = (uint16_t)((sourceBuffer.u + readBytes) - mustacheOpen);
-            if (transientBufferLen > sizeof(transientBuffer)) {
-                transientBufferLen = sizeof(transientBuffer);
-            }
-            memcpy(transientBuffer, mustacheOpen, transientBufferLen);
-        }
-        */
-        // fill the last part of the output buffer if needed
-        size_t s = sourceBuffer.u + readBytes - mustacheClose;
-        memcpy(outputHead, mustacheClose, s);
-        outputHead += s;
+    mustache_slice parsedSlice = {
+        .u = outputBuffer.u,
+        .len = outputHead - outputBuffer.u,
+    };
+    parseCallback(parser, uData, parsedSlice);
 
-        mustache_slice parsedSlice = {
-            .u = outputBuffer.u,
-            .len = outputHead - outputBuffer.u,
-        };
-        parseCallback(parser, uData, parsedSlice);
-
-        readBytes = stream->readCallback(stream->udata, sourceBuffer.u, sourceBuffer.len);
-        if (readBytes == 0) {
-            //break;
-        }
+    readBytes = stream->readCallback(stream->udata, inputBuffer.u, inputBuffer.len);
+    if (readBytes == 0) {
+        //break;
+    }
     //}
 
     return MUSTACHE_SUCCESS;
 }
-
-
-
-
-
-/* ====== SYSTEM TESTS ====== */
-
-#ifdef MUSTACHE_SYSTEM_TESTS
-void mustache_cache_print_first_byte_lookup(const mustache_cache* cache)
-{
-    printf("\nCACHE can hold a maximum of %d lookup entries.\n", cache->entryBuffer.len / sizeof(mustache_cache_entry));
-    for (uint32_t i = 0; i < 256; ++i) {
-        const mustache_cache_lookup_block* block = cache->firstByteLookup + i;
-        if (block->capacity > 0) {
-            printf("==== FIRST BYTE LOOKUP BLOCK #%d ====\n", i);
-            printf("\tCAPACITY: %d\n", block->capacity);
-            printf("\tOFFSET: %d\n", block->offset);
-            printf("\tENTRIES: %d\n", block->entryCount);
-        }
-    }
-}
-
-
-void mustache_cache_print_entries_of_lookup_block(const mustache_cache* cache, uint8_t byte)
-{
-    uint32_t i = 0;
-    mustache_cache_entry* entry = (mustache_cache_entry*)(cache->entryBuffer.u + cache->firstByteLookup[byte].offset);
-    printf("==== BLOCK '%c'(#%d) ENTRY COUNT: %d ====\n", byte, byte, cache->firstByteLookup[byte].entryCount);
-    for (uint8_t i = 0; i < cache->firstByteLookup[byte].entryCount; ++i) 
-    {
-        printf("\t==== CACHE ENTRY #%d ====\n",i);
-        printf("\t\tNAME: %.*s\n", entry->key.len,entry->key.u);
-        printf("\t\tDATA LEN.: %d\n", entry->item.dataLen);
-
-        entry++;
-    }
-}
-
-void mustache_cache_validate(const mustache_cache* cache)
-{
-    uint16_t invalidLookupBlockCount = 0;
-    uint16_t blocksWithContentsBlockCount = 0;
-    bool isInvalid = false;
-    for (uint16_t b = 0; b < array_count(cache->firstByteLookup); ++b)
-    {
-        isInvalid = false;
-        const mustache_cache_lookup_block* block = cache->firstByteLookup + b;
-        if (block->capacity) 
-        {
-            blocksWithContentsBlockCount++;
-            if (block->offset + block->capacity > cache->entryBuffer.len) 
-            {
-                printf("CACHE VALIDATION: BLOCK '%c'(#%d) OVERFLOWS CACHE ENTRY BUFFER:\n", b, b);
-                printf("\tENTRY BUFFER SIZE: %d - BLOCK EXTENDS THIS BY %d BYTES\n", cache->entryBuffer.len, (block->offset + block->capacity) - cache->entryBuffer.len);
-                isInvalid = true;
-            }
-
-            // CHECK OVERLAP
-            const mustache_cache_lookup_block* blockB = cache->firstByteLookup;
-            const mustache_cache_lookup_block* blockB_end = cache->firstByteLookup + array_count(cache->firstByteLookup);
-            for (; block < blockB_end; ++block) 
-            {
-                if (blockB != block && blockB->capacity > 0) 
-                {
-                    if (blockB->offset >= block->offset && blockB->offset <= block->offset + block->capacity
-                        ||
-                        blockB->offset + blockB->capacity >= block->offset && blockB->offset + blockB->capacity <= block->offset + block->capacity)
-                    {
-                        const uint8_t bb = blockB - cache->firstByteLookup;
-                        printf("CACHE VALIDATION: BLOCK '%c'(#%d) COLLIDES WITH BLOCK '%c'(#%d):\n", b, b, bb, bb);
-                        printf("\tBLOCK BLOCK '%c'(#%d): OFFSET OF %d, CAPACITY OF %d", b, b, block->offset, block->capacity);
-                        printf("\tBLOCK BLOCK '%c'(#%d): OFFSET OF %d, CAPACITY OF %d", bb, bb, block->offset, block->capacity);
-                        isInvalid = true;
-                    }
-                }
-            }
-
-            if (isInvalid) {
-                invalidLookupBlockCount++;
-            }
-        }
-    }
-
-    if (invalidLookupBlockCount) {
-        printf("CACHE VALIDATION COMPLETE: %d OF %d LOOKUP BLOCKS ARE INVALID\n", invalidLookupBlockCount, blocksWithContentsBlockCount);
-    }
-    else {
-        printf("CACHE VALIDATION COMPLETE: ALL %d BLOCKS ARE VALID\n", blocksWithContentsBlockCount);
-    }
-}
-
-void mustache_cache_print_entries(const mustache_cache* cache)
-{
-    const mustache_cache_lookup_block* block = cache->firstByteLookup;
-    for (; block<cache->firstByteLookup+array_count(cache->firstByteLookup); ++block)
-    {
-        uint8_t b = block - cache->firstByteLookup;
-        if (block->capacity > 0) {
-            mustache_cache_print_entries_of_lookup_block(cache, b);
-        }
-    }
-}
-
-#endif

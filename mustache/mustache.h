@@ -33,6 +33,7 @@ SOFTWARE.
 typedef enum {
     MUSTACHE_SUCCESS=0,
     MUSTACHE_ERR,
+    MUSTACHE_ERR_ALLOC,
     MUSTACHE_ERR_FILE_OPEN,
     MUSTACHE_ERR_NONEXISTENT,
     MUSTACHE_ERR_NO_SPACE,
@@ -104,6 +105,10 @@ typedef int32_t (*mustache_seek_callback)(void* udata, int64_t whence, MUSTACHE_
 
 typedef size_t (*mustache_read_callback)(void* udata, uint8_t* dst, size_t dstlen);
 
+typedef void* (*mustache_alloc)(mustache_parser* parser, size_t bytes);
+
+typedef void (*mustache_free)(mustache_parser* parser, void* block);
+
 
 /* ====== STRUCTURE TYPES ====== */
 
@@ -122,7 +127,10 @@ typedef struct mustache_const_slice
 
 typedef struct mustache_parser
 {
+    void* userData;
     mustache_slice parentStackBuf;
+    mustache_alloc alloc;
+    mustache_free  free;
 } mustache_parser;
 
 typedef struct mustache_cache_lookup_block {
@@ -223,14 +231,6 @@ typedef void (*mustache_parse_callback)(mustache_parser* parser, void* udata, mu
 
 
 /* ====== FUNCTIONS ====== */
-
-void mustache_template_cache_init(mustache_cache* cache);
-
-bool mustache_check_cache(mustache_cache* cache, mustache_const_slice itemkey);
-
-uint8_t mustache_cache_set_item(mustache_cache* cache, mustache_const_slice itemkey, mustache_cache_item item);
-
-uint8_t mustache_cache_remove_item(mustache_cache* cache, mustache_const_slice itemKey);
 
 uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filename, mustache_template_cache* streamCache, MUSTACHE_CACHE_MODE, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* uData, mustache_parse_callback parseCallback);
 

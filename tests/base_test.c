@@ -28,6 +28,16 @@ SOFTWARE.
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+void* _alloc(mustache_parser* parser, size_t bytes) {
+    return malloc(bytes);
+}
+
+
+void _free(mustache_parser* parser, void* b) {
+    free(b);
+}
 
 void parse_callback(mustache_parser* parser, void* udata, mustache_slice parsed)
 {
@@ -43,7 +53,8 @@ int main()
     uint8_t PARENT_STACK_BUFFER[2048];
     mustache_parser parser;
     parser.parentStackBuf = (mustache_slice){ PARENT_STACK_BUFFER,sizeof(PARENT_STACK_BUFFER) };
-
+    parser.alloc = _alloc;
+    parser.free = _free;
 
     mustache_param_string param_title = {
         .pNext = NULL,
@@ -63,7 +74,7 @@ int main()
       .pNext = &param_name,
       .type = MUSTACHE_PARAM_NUMBER,
       .name = {"messages",strlen("messages")},
-      .value = 3.14159265,
+      .value = 67,
       .decimals = 8,
       .trimZeros = true
     };
@@ -98,34 +109,27 @@ int main()
         .name = {"name",strlen("name")},
         .str = {"NASA_Howard",strlen("NASA_Howard")}
     };
-    /*
+    
+    mustache_param_object userData = {
+        .pNext = NULL,
+         .type = MUSTACHE_PARAM_OBJECT,
+        .name = {"data",strlen("data")},
+        .pMembers = &name1
+    };
     mustache_param_object user1 = {
         .pNext = NULL,
         .type = MUSTACHE_PARAM_OBJECT,
         .name = {"u1",strlen("u1")},
-        .pMembers = &name1
+        .pMembers = &userData
     };
-    */
-    mustache_param_string name2 = {
-       .pNext = &name1,
-       .type = MUSTACHE_PARAM_STRING,
-       .name = {"name",strlen("name")},
-       .str = {"Richard36",strlen("Richard36")}
-    };
-    /*
-    mustache_param_object user2 = {
-        .pNext = &user1,
-        .type = MUSTACHE_PARAM_OBJECT,
-        .name = {"u2",strlen("u2")},
-        .pMembers = &name2
-    };
-    */
+    
+
     mustache_param_list param_list = {
         .pNext = &param_site,
         .type = MUSTACHE_PARAM_LIST,
         .name = {"users",strlen("users")},
-        .valueCount = 2,
-        .pValues = &name2
+        .valueCount = 1,
+        .pValues = &user1
     };
 
     const char* filename = "basic.html";
@@ -156,37 +160,6 @@ int main()
 
 
     fclose(fptr);
-
-    /*fptr = fopen("basic_parsed.html", "wb");
-    if (!fptr) {
-        fprintf(stderr, "FAILED TO OPEN FILE\n"); return -1;
-    }*/
-
-
-  /*  if (mustache_parse_file(&parser, filenameSlice, 
-        &templateCache, MUSTACHE_CACHE_MODE_READ_WRITE,
-        (mustache_param*)&param_list,
-        (mustache_slice) {
-        PARSER_INPUT_BUFFER, sizeof(PARSER_INPUT_BUFFER)
-    },
-        (mustache_slice) {
-        PARSER_OUTPUT_BUFFER, sizeof(PARSER_OUTPUT_BUFFER)
-    },
-        fptr, parse_callback) != MUSTACHE_SUCCESS)
-    {
-        fprintf(stderr, "MUSTACHE: FAILED TO PARSE FILE\n");
-        return -1;
-    }*/
-
-    fclose(fptr);
-
-    //mustache_cache_remove_item(&templateCache, filenameSlice3);
-    
-    //mustache_cache_print_first_byte_lookup(&templateCache);
-
-    //mustache_cache_print_entries(&templateCache);
-
-    //mustache_cache_validate(&templateCache);
 
     return 0;
 }

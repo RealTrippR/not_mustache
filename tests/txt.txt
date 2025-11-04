@@ -1,6 +1,429 @@
-{{^loggedIn}}
-<p>Please <a href="/login">log in</a> to continue.</p>
-{{/loggedIn}}
-{{#users}}
-<p>{{.}} is online.</p>
-{{/users}}
+<!DOCTYPE html>
+{{!A simple test of the C mustache templating engine}}
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{title}}</title>
+</head>
+<body>
+    <h1>Hello, {{name}}!</h1>
+    <p>Welcome to {{site}}.</p>
+    <p>Site up? {{site_up}}</p>
+    {{#loggedIn}}
+    <p>You are logged in and have {{messages}} new messages.</p>
+    {{/loggedIn}} this line is not standalone.
+
+    {{^loggedIn}} ..
+    <p>Please <a href="/login">log in</a> to continue.</p>
+    {{/loggedIn}} ..
+    {{#users}}
+    <p>{{.}} is online.</p>
+    {{/users}}
+
+</body>
+</html>
+
+
+
+
+
+
+static uint8_t evaluate_parent_parameter(
+    mustache_slice inputBuffer, mustache_param* parent, uint8_t* parentIntBegin, 
+    uint8_t* parentIntLast, uint8_t** inputHead, uint8_t** outputHead, uint8_t* outputEnd,
+    mustache_param* globalParams, parent_stack* parentStack)
+{
+    parent_stack_push(parentStack, parent);
+
+    if (parent->type == MUSTACHE_PARAM_LIST)
+    {
+        mustache_param_list* list = (mustache_param_list*)parent;
+        mustache_param* child = list->pValues;
+
+        *inputHead = parentIntBegin;
+        uint8_t* lastInputHead = *inputHead;
+        uint8_t* inputEnd = inputBuffer.u + inputBuffer.len;
+        uint8_t* head = 0;
+
+
+
+        uint32_t i=0;
+        // iterate over the list
+        while (*inputHead <= parentIntLast)
+        {
+            uint8_t* mIntOpen;
+            uint8_t* mIntClose;
+            if (is_mustache_open(*inputHead)) {
+                mIntOpen = *inputHead+2;
+
+                if (lastInputHead <= *inputHead) {
+                    bool standlone = false;
+                    uint8_t* lineBeg = get_line_begin(*inputHead, inputBuffer.u);
+                    uint8_t* lineEnd = get_line_end(*inputHead, inputEnd);
+
+                    // handle standalone line copy issues
+                    size_t s = *inputHead - lastInputHead;
+                    if (lineEnd) {
+                        standlone = is_line_standalone(lineBeg, lineEnd);
+                        if (standlone) {
+                            s = lineBeg - lastInputHead;
+                        }
+                    }
+                    uint8_t* enn = lastInputHead + s;
+                    memcpy(*outputHead, lastInputHead, s);
+                    *outputHead += s;
+                }
+
+                // get mustache close
+                while (*inputHead <= parentIntLast)
+                {
+                    if (is_mustache_close(*inputHead)) 
+                    {
+                        bool isDone = false;
+                        bool resetInputHead = false;
+                        mIntClose = *inputHead-1;
+                          
+                        MUSTACHE_TYPE type = get_mustache_type(mIntOpen);
+                        if (type == MUSTACHE_TYPE_COMMENT || type == MUSTACHE_TYPE_CLOSE)
+                        {
+                            bool standlone = false;
+                            // check if the starting cond. line is standalone. If so, skip it.
+                            uint8_t* lineBeg = get_line_begin(mIntOpen, inputBuffer.u);
+                            uint8_t* lineEnd = get_line_end(mIntClose, inputEnd);
+
+                            if (lineEnd) {
+                                standlone = is_line_standalone(lineBeg, lineEnd);
+                                if (standlone) {
+                                    *inputHead = lineEnd + 1;
+                                }
+                                else {
+                                    *inputHead += 2;
+                                }
+                            }
+                        }
+                        else if (type == MUSTACHE_TYPE_VARIABLE) {
+                            uint16_t paramLen = mIntClose - mIntOpen + 1;
+                            if (paramLen == 1 && *mIntOpen == '.') 
+                            {
+                                *outputHead = write_variable(child, *outputHead, outputEnd);
+                                *inputHead += 2; // skip to end of '.}}'
+                            }
+                            else {
+
+                                uint8_t* tc;
+                                // evaluate
+                                evaluate_parameter(
+                                    inputBuffer, globalParams, inputHead, outputHead,
+                                    outputEnd, mIntOpen, mIntClose,
+                                    type, parentStack
+                                );
+                            }
+
+                            child = child->pNext;
+                            i++;
+                            if (!child || i == list->valueCount) {
+                                isDone = true;
+                            }
+                            resetInputHead = true;
+                        }
+                        else
+                        {
+                            mIntOpen++; // skip prefix ('!', '^', '#', '/')
+
+                            // evaluate
+                            evaluate_parameter(
+                                inputBuffer, globalParams, inputHead, outputHead,
+                                outputEnd, mIntOpen, mIntClose,
+                                type, parentStack
+                            );
+                            int i = 0;
+                        }
+
+                        // fill the last part of the output buffer if needed
+                        if (parentIntLast >= *inputHead && *outputHead < outputEnd) {
+                            size_t s = parentIntLast - *inputHead + 1;
+                            memcpy(*outputHead, *inputHead, s);
+                            *outputHead += s;
+                        }
+
+                        if (isDone) {
+                            goto done; }
+                        if (resetInputHead) {
+                            *inputHead = parentIntBegin;
+                        }
+                        lastInputHead = *inputHead;
+                        break;
+                    }
+                    (*inputHead)++;
+                }
+            }
+            (*inputHead)++;
+        }
+    }
+done:
+    *inputHead = parentIntLast+6 + parent->name.len;
+    parent_stack_pop(parentStack, parent);
+    return MUSTACHE_SUCCESS;
+}
+
+
+
+
+
+
+
+static uint8_t evaluate_parameter(mustache_slice inputBuffer, mustache_param* paramBase, uint8_t** inputHead, uint8_t** outputHead, 
+    uint8_t* outputEnd, uint8_t* mustacheIntOpen, uint8_t* mustacheIntClose, uint8_t type, parent_stack* parentStack)
+{
+    uint16_t mustacheLen = mustacheIntClose - mustacheIntOpen + 1;
+    paramBase = get_parameter(mustacheIntOpen, mustacheLen, paramBase, parentStack);
+
+    uint8_t* inputEnd = inputBuffer.u + inputBuffer.len;
+    uint8_t* mustacheEnd = mustacheIntClose + 3;
+
+    if (type != MUSTACHE_TYPE_VARIABLE) {
+        goto evaluate_truthy;
+    }
+
+    if (!paramBase) {
+        // set input head to the end of the mustache
+        *inputHead = mustacheIntClose + 3;
+        return MUSTACHE_ERR_NONEXISTENT;
+    }
+
+
+    // BOOLEAN PARAM
+    if (paramBase->type == MUSTACHE_PARAM_BOOLEAN) {
+        *outputHead = write_variable(paramBase, *outputHead, outputEnd);
+    }
+    // STRING PARAM
+    else if (paramBase->type == MUSTACHE_PARAM_STRING)
+    {
+        *outputHead = write_variable(paramBase, *outputHead, outputEnd);
+    }
+    // NUMBER PARAM
+    else if (paramBase->type == MUSTACHE_PARAM_NUMBER)
+    {
+        *outputHead = write_variable(paramBase, *outputHead, outputEnd);
+    }
+
+    *inputHead = mustacheEnd; // SET INPUT HEAD TO JUST AFTER THE '}}'
+
+    return MUSTACHE_SUCCESS;
+
+
+evaluate_truthy:
+    uint8_t* truthyClose = get_truthy_close(paramBase->name, mustacheIntClose, inputEnd);
+    if (!truthyClose) {
+        return MUSTACHE_ERR_INVALID_TEMPLATE;
+    }
+
+    uint8_t* interiorFirst = mustacheIntClose+3;
+    uint8_t* interiorLast = truthyClose-1;
+
+
+
+    bool standlone = false;
+    // check if the starting cond. line is standalone. If so, skip it.
+    uint8_t* lineBeg = get_line_begin(mustacheIntOpen, inputBuffer.u);
+    uint8_t* lineEnd = get_line_end(mustacheIntOpen, inputEnd);
+
+
+    if (lineEnd) {
+        standlone = is_line_standalone(lineBeg, lineEnd);
+        if (standlone) {
+            *inputHead = lineEnd;
+        }
+    }
+
+    bool cond_val=false;
+    if (!paramBase) {
+        cond_val = false;
+    }
+    else {
+        if (paramBase->type == MUSTACHE_PARAM_BOOLEAN) {
+            mustache_param_boolean* param = (mustache_param_boolean*)paramBase;
+            if (param->value) {
+                cond_val = true;
+            }
+        }
+        if (paramBase->type == MUSTACHE_PARAM_NUMBER) {
+            mustache_param_number* param = (mustache_param_number*)paramBase;
+            if (param->value) {
+                cond_val = true;
+            }
+        }
+    }
+
+    // check if the ending cond. line is standalone. If so, skip it.
+    lineBeg = get_line_begin(truthyClose, inputBuffer.u);
+    lineEnd = get_line_end(truthyClose, inputEnd);
+    if (lineEnd) {
+        standlone = is_line_standalone(lineBeg, lineEnd);
+        if (standlone) {
+            *inputHead = lineEnd - 3;
+        }
+    }
+    if (paramBase && is_parent(paramBase)) {
+        uint8_t* head = interiorFirst;
+        evaluate_parent_parameter(
+            inputBuffer, paramBase, interiorFirst,
+            interiorLast, inputHead, outputHead,
+            outputEnd, paramBase, parentStack
+        );
+    }
+    else if ((type == MUSTACHE_TYPE_POUND) || (type == MUSTACHE_TYPE_FALSY && !cond_val))
+    {
+        // IF CONDITION IS TRUE
+        *inputHead = mustacheEnd + 1;
+    }
+    else {
+        // IF CONDITION IS FALSE
+        *inputHead = truthyClose + mustacheLen + 5;
+    }
+    return MUSTACHE_SUCCESS;
+}
+
+
+uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, mustache_template_cache* streamCache, MUSTACHE_CACHE_MODE cacheMode,
+    mustache_param* params, mustache_slice inputBuffer, mustache_slice outputBuffer, void* uData, mustache_parse_callback parseCallback)
+{
+    if (streamCache) {
+        streamCache->privMAX_VAR_COUNT = (uint32_t)(streamCache->varBuffer.len / sizeof(mustache_var_info));
+        if (cacheMode & MUSTACHE_CACHE_MODE_READ) {
+            uint8_t err=0;
+            //uint8_t err = mustache_parse_from_cache(parser, stream, streamCache, params, sourceBuffer, outputBuffer, uData, parseCallback);
+            if (err != MUSTACHE_ERR_INCOMPLETE) {
+                return err;
+            }
+        }
+    }
+
+    uint8_t* inputHead = inputBuffer.u;
+    uint8_t* inputBeg = inputBuffer.u;
+    uint8_t transientBuffer[2048];
+    uint16_t transientBufferLen = 0;
+
+    uint8_t* mustacheOpen = NULL;
+    uint8_t* mustacheClose = inputBuffer.u;
+
+    size_t readBytes = stream->readCallback(stream->udata, inputBuffer.u, inputBuffer.len);
+    uint8_t* inputEnd = inputBuffer.u + readBytes;
+
+    if (readBytes < 4 || readBytes >= UINT32_MAX-3) {
+        return MUSTACHE_ERR_ARGS;
+    }
+
+    uint8_t* outputHead = outputBuffer.u;
+    uint8_t* outputEnd = outputBuffer.u + outputBuffer.len;
+
+    parent_stack parStack = {
+        .buf = parser->parentStackBuf,
+        .count = 0,
+        .MAX_COUNT = parser->parentStackBuf.len / sizeof(void*)
+    };
+
+    
+    uint8_t* lastInputHead = inputHead;
+    while (inputHead < inputEnd)
+    {
+        if (is_mustache_open(inputHead))
+        {
+            if (lastInputHead <= inputHead) {
+                bool standlone = false;
+                uint8_t* lineBeg = get_line_begin(inputHead, inputBuffer.u);
+                uint8_t* lineEnd = get_line_end(inputHead, inputEnd);
+
+                // handle standalone line copy issues
+                size_t s = inputHead - lastInputHead;
+                if (lineEnd) {
+                    standlone = is_line_standalone(lineBeg, lineEnd);
+                    if (standlone) {
+                        s = lineBeg - lastInputHead;
+                    }
+                }
+                uint8_t* enn = lastInputHead + s;
+                memcpy(outputHead, lastInputHead, s);
+                outputHead += s;
+                mustacheOpen = inputHead + 2;
+            }
+            
+
+            // get mustache close
+            while (inputHead < inputEnd)
+            {
+                if (is_mustache_close(inputHead))
+                {
+                    mustacheClose = inputHead - 1;
+
+                    MUSTACHE_TYPE type = get_mustache_type(mustacheOpen);
+                    if (type == MUSTACHE_TYPE_COMMENT || type == MUSTACHE_TYPE_CLOSE) 
+                    {
+                        bool standlone = false;
+                        // check if the starting cond. line is standalone. If so, skip it.
+                        uint8_t* lineBeg = get_line_begin(mustacheOpen, inputBuffer.u);
+                        uint8_t* lineEnd = get_line_end(mustacheOpen, inputEnd);
+
+                        if (lineEnd) {
+                            standlone = is_line_standalone(lineBeg, lineEnd);
+                            if (standlone) {
+                                inputHead = lineEnd+1;
+                            }
+                            else {
+                                inputHead += 2;
+                            }
+                        }
+                    }
+                    else if (type == MUSTACHE_TYPE_VARIABLE) {
+                        uint8_t* tc;
+                        // evaluate
+                        evaluate_parameter(
+                            inputBuffer, params, &inputHead, &outputHead,
+                            outputEnd, mustacheOpen, mustacheClose,
+                            type, &parStack
+                        );
+                    }
+                    else 
+                    {
+                        mustacheOpen++; // skip prefix ('!', '^', '#', '/')
+                        // evaluate
+                        evaluate_parameter(
+                            inputBuffer, params, &inputHead, &outputHead,
+                            outputEnd, mustacheOpen, mustacheClose,
+                            type, &parStack
+                        );
+                    }
+
+                    lastInputHead = inputHead;
+                    break;
+                }
+                inputHead++;
+            }
+        }
+
+        inputHead++;
+    }
+
+
+
+    // fill the last part of the output buffer if needed
+    if (inputEnd >= lastInputHead && outputHead<outputEnd) {
+        size_t s = inputEnd - lastInputHead;
+        memcpy(outputHead, lastInputHead, s);
+        outputHead += s;
+    }
+
+    mustache_slice parsedSlice = {
+        .u = outputBuffer.u,
+        .len = outputHead - outputBuffer.u,
+    };
+    parseCallback(parser, uData, parsedSlice);
+
+    readBytes = stream->readCallback(stream->udata, inputBuffer.u, inputBuffer.len);
+    if (readBytes == 0) {
+        //break;
+    }
+    //}
+
+    return MUSTACHE_SUCCESS;
+}
