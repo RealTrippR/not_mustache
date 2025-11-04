@@ -107,10 +107,10 @@ int main()
         .pNext = NULL,
         .type = MUSTACHE_PARAM_STRING,
         .name = {"name",strlen("name")},
-        .str = {"NASA_Howard",strlen("NASA_Howard")}
+        .str = {"HowardAtNASA",strlen("HowardAtNASA")}
     };
     
-    mustache_param_object userData = {
+    mustache_param_object userData1 = {
         .pNext = NULL,
          .type = MUSTACHE_PARAM_OBJECT,
         .name = {"data",strlen("data")},
@@ -120,16 +120,35 @@ int main()
         .pNext = NULL,
         .type = MUSTACHE_PARAM_OBJECT,
         .name = {"u1",strlen("u1")},
-        .pMembers = &userData
+        .pMembers = &userData1
     };
     
+    mustache_param_string name2 = {
+       .pNext = NULL,
+       .type = MUSTACHE_PARAM_STRING,
+       .name = {"name",strlen("name")},
+       .str = {"Elise_06",strlen("Elise_06")}
+    };
+
+    mustache_param_object userData2 = {
+        .pNext = NULL,
+         .type = MUSTACHE_PARAM_OBJECT,
+        .name = {"data",strlen("data")},
+        .pMembers = &name2
+    };
+    mustache_param_object user2 = {
+        .pNext = &user1,
+        .type = MUSTACHE_PARAM_OBJECT,
+        .name = {"u2",strlen("u2")},
+        .pMembers = &userData2
+    };
 
     mustache_param_list param_list = {
         .pNext = &param_site,
         .type = MUSTACHE_PARAM_LIST,
         .name = {"users",strlen("users")},
-        .valueCount = 1,
-        .pValues = &user1
+        .valueCount = 2,
+        .pValues = &user2
     };
 
     const char* filename = "basic.html";

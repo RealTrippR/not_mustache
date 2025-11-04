@@ -51,6 +51,7 @@ typedef enum
     STRUCTURE_TYPE_SCOPED_CARET,
     STRUCTURE_TYPE_COMMENT,
     STRUCTURE_TYPE_CLOSE,
+    STRUCTURE_TYPE_SKIP_RANGE,
     STRUCTURE_TYPE_ROOT
 } STRUCTURE_TYPE;
 
@@ -63,31 +64,45 @@ typedef struct structure structure;
 typedef struct structure {
     structure* pNext;
     structure* pLast;
-    mustache_param* param;
-    standalone_data* standalone;
     STRUCTURE_TYPE type;
+
     uint32_t contentsFirst; // the first byte after the second '{'
     uint32_t contentsEnd; // the first closing '}'
+
+    mustache_param* param;
+    standalone_data* standalone;
 } structure;
 
 typedef struct {
     structure* pNext;
     structure* pLast;
-    mustache_param* param;
-    standalone_data* standalone;
     STRUCTURE_TYPE type;
+
+    uint32_t skipFirst;
+    uint32_t skipLast;
+} skip_range_structure;
+
+typedef struct {
+    structure* pNext;
+    structure* pLast;
+    STRUCTURE_TYPE type;
+
     uint32_t contentsFirst; // the first byte after the second '{'
     uint32_t contentsEnd; // the first closing '}'
+
+    mustache_param* param;
+    standalone_data* standalone;
 } var_structure;
 
 typedef struct {
     structure* pNext;
     structure* pLast;
-    mustache_param* param;
-    standalone_data* standalone;
     STRUCTURE_TYPE type;
     uint32_t contentsFirst; // the first byte after the second '{'
     uint32_t contentsEnd; // the first closing '}'
+
+    mustache_param* param;
+    standalone_data* standalone;
 
     uint32_t interiorFirst; // the first byte of the interior
     uint32_t interiorEnd; // the end of the interior - the first opening bracket of it's closing mustache '{{/name}}'
@@ -99,11 +114,14 @@ typedef struct {
 typedef struct {
     structure* pNext;
     structure* pLast;
-    mustache_param* param;
-    standalone_data* standalone;
     STRUCTURE_TYPE type;
+
     uint32_t contentsFirst; // the first byte after the second '{'
     uint32_t contentsEnd; // the first closing '}'
+
+    mustache_param* param;
+    standalone_data* standalone;
+
     scoped_structure* parent;
 } close_structure;
 
@@ -761,8 +779,19 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
             uint8_t* first = inputHead+2;
             uint8_t* end = get_mustache_close(first, inputEnd);
             structure* mstruct = NULL;
+            // handle escape case
+            if (*(inputHead-1)=='/') {
+                mstruct = parser->alloc(parser, sizeof(skip_range_structure));
+                mstruct->type = STRUCTURE_TYPE_SKIP_RANGE;
+                mstruct->pNext = NULL;
 
-            if (*first == '/' || *first == '!')
+                skip_range_structure* asSkip = (skip_range_structure*)mstruct;
+                asSkip->skipFirst = (inputHead - inputFirst)-1;
+                asSkip->skipLast = inputHead - inputFirst;
+
+                inputHead = end+2;
+            }
+            else if (*first == '/' || *first == '!')
             {
                 if (*first == '/') {
                     mstruct = parser->alloc(parser, sizeof(close_structure));
@@ -866,9 +895,10 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
                 mstruct->type = STRUCTURE_TYPE_VAR;
             }
 
-            mstruct->contentsFirst = first - inputFirst;
-            mstruct->contentsEnd = end - inputFirst;
-
+            if (mstruct->type != STRUCTURE_TYPE_SKIP_RANGE) {
+                mstruct->contentsFirst = first - inputFirst;
+                mstruct->contentsEnd = end - inputFirst;
+            }
             inputHead = end + 1;
 
             last_struct->pNext = mstruct;
@@ -985,7 +1015,15 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
     const uint8_t* lastNonEscaped = inputHead;
     while (mstruct)
     {
-        if (mstruct->type == STRUCTURE_TYPE_VAR) 
+        if (mstruct->type == STRUCTURE_TYPE_SKIP_RANGE) {
+            skip_range_structure* asSkipRange = (skip_range_structure*)mstruct;
+            const uint8_t* t = input + asSkipRange->skipFirst;
+            inputHead = t;
+            outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, inputHead);
+            t = input + asSkipRange->skipLast;
+            lastNonEscaped = t;
+        }
+        else if (mstruct->type == STRUCTURE_TYPE_VAR) 
         {
             const uint8_t* m_name_first = input + mstruct->contentsFirst;
             const uint8_t* m_name_end = input + mstruct->contentsEnd;
@@ -1177,7 +1215,7 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, 
     };
 
     structure structureRoot = { .type=STRUCTURE_TYPE_ROOT }; 
-    uint8_t err = source_to_structured(parser, &structureRoot, inputBuffer.u,inputHead,inputEnd);
+    MUSTACHE_RES err = source_to_structured(parser, &structureRoot, inputBuffer.u,inputHead,inputEnd);
     if (err) {
         return err;
     }

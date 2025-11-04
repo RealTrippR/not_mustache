@@ -132,7 +132,9 @@
     <None Include="tests\basic_parsed.html" />
     <None Include="tests\conditionals.html" />
     <None Include="tests\conditionals_parsed.html" />
+    <None Include="tests\m_ex.html" />
     <None Include="tests\makefile" />
+    <None Include="tests\m_ex_parsed.html" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="mustache\mustache.c" />
