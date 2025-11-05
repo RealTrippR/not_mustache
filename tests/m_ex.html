@@ -24,9 +24,12 @@
     {{len(users)>0}} {{!a conditional}}
     <b>The first user is: {{users[0].data.name}}</b>
     }}
+    {{^len(users)>0 || ^users}} {{!a conditional}}
+    <b>The user does not exist</b>
+    }}
 
-    {{$users["u1"]}}
-        <b>The user "HowardAtNASA" exists.</b>
+    {{users["u1"]}}
+    <b>The user object "u1" exists.</b>
     }}
 
     {{!If / precedes a mustache, it will be escaped. For example: }}

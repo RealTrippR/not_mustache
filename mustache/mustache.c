@@ -52,7 +52,8 @@ typedef enum
     STRUCTURE_TYPE_COMMENT,
     STRUCTURE_TYPE_CLOSE,
     STRUCTURE_TYPE_SKIP_RANGE,
-    STRUCTURE_TYPE_ROOT
+    STRUCTURE_TYPE_ROOT,
+    STRUCTURE_TYPE_LEN
 } STRUCTURE_TYPE;
 
 typedef struct {
@@ -87,11 +88,27 @@ typedef struct {
     structure* pLast;
     STRUCTURE_TYPE type;
 
+    uint32_t skipFirst;
+    uint32_t skipLast;
+
+    mustache_param* param;
+
+    uint32_t interiorFirst; // the first byte of the interior var name
+    uint32_t interiorEnd; // the last byte + 1 of the interior (the closing ')') after the name
+} len_structure;
+
+typedef struct {
+    structure* pNext;
+    structure* pLast;
+    STRUCTURE_TYPE type;
+
     uint32_t contentsFirst; // the first byte after the second '{'
     uint32_t contentsEnd; // the first closing '}'
 
     mustache_param* param;
     standalone_data* standalone;
+
+    bool escapeHTML;
 } var_structure;
 
 typedef struct {
@@ -109,6 +126,7 @@ typedef struct {
 
     uint32_t curIdx; // current child index
     mustache_param* curChild;
+
 } scoped_structure;
 
 typedef struct {
@@ -125,6 +143,60 @@ typedef struct {
     scoped_structure* parent;
 } close_structure;
 
+
+
+int32_t strtoi32(const char* str, uint8_t bufflen, int32_t* strLenOut)
+{
+    if (strLenOut) /* 0-init */
+        *strLenOut = 0;
+    int32_t num = 0;
+    char negative = 0u;
+    if (*str == '-') {
+        negative = 1;
+        str++;
+    }
+
+    const uint8_t max_digits = bufflen;
+
+    int32_t i = 0;
+    for (; i < max_digits; ++i)
+    {
+        if (i == max_digits) {
+            if (!(str[i] == '\r' || str[i] == '\n') && !isspace(str[i])) {
+                if (strLenOut)
+                    *strLenOut = 0;
+                return 0;
+            }
+        }
+        else {
+            if (str[i] < '0' || str[i] > '9') {
+                break;
+            }
+            else {
+                if (negative == 0) {
+                    if (num > (INT32_MAX - (str[i] - '0')) / 10) {
+                        if (strLenOut)
+                            *strLenOut = 0;
+                        return 0;
+                    }
+                }
+                else {
+                    if (num > (int32_t)(abs(INT32_MIN) - (str[i] - '0')) / 10) {
+                        if (strLenOut)
+                            *strLenOut = 0;
+                        return 0;
+                    }
+                }
+                num = num * 10 + (str[i] - 48);
+                if (strLenOut)
+                    (*strLenOut)++;
+            }
+        }
+    }
+    if (negative)
+        num *= -1;
+    return num;
+}
 
 static void parent_stack_pop(parent_stack* stack)
 {
@@ -779,9 +851,40 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
             uint8_t* first = inputHead+2;
             uint8_t* end = get_mustache_close(first, inputEnd);
             structure* mstruct = NULL;
+            // handle len case
+            if (strneql(first, "len(",4))
+            { 
+                if (inputHead + 4 >= inputEnd) {
+                    return MUSTACHE_ERR_INVALID_TEMPLATE;
+                }
+                uint8_t* interiorFirst = first + 4;
+                uint8_t* interiorEnd;
+                inputHead = interiorFirst;
+                // get closing ')'
+                while (inputHead < inputEnd)
+                {
+                    if (*inputHead == ')') {
+                        interiorEnd = inputHead;
+                        break;
+                    }
+                    inputHead++;
+                }
+                mstruct = parser->alloc(parser, sizeof(len_structure));
+                if (!mstruct) { return MUSTACHE_ERR_ALLOC; }
+                mstruct->type = STRUCTURE_TYPE_LEN;
+                mstruct->pNext = NULL;
+
+                len_structure* asLen = (len_structure*)mstruct;
+                asLen->param = NULL;
+                asLen->interiorFirst = (interiorFirst - inputFirst);
+                asLen->interiorEnd = interiorEnd - inputFirst;
+
+                inputHead = end + 2;
+            }
             // handle escape case
-            if (*(inputHead-1)=='/') {
+            else if (*(inputHead-1)=='/') {
                 mstruct = parser->alloc(parser, sizeof(skip_range_structure));
+                if (!mstruct) { return MUSTACHE_ERR_ALLOC; }
                 mstruct->type = STRUCTURE_TYPE_SKIP_RANGE;
                 mstruct->pNext = NULL;
 
@@ -944,10 +1047,55 @@ void eval_jump(structure* mstruct, const uint8_t* m_name_first, const uint8_t* m
     }
 }
 
+static uint32_t get_parent_child_count(mustache_param* parent)
+{
+#ifndef NDEBUG
+    if (parent->type != MUSTACHE_PARAM_OBJECT && parent->type != MUSTACHE_PARAM_LIST) {
+        assert(00 && "get_parent_child_count: parent IS NOT A VALID PARENT.");
+    }
+#endif // !NDEBUG
+    if (parent->type == MUSTACHE_PARAM_LIST) {
+        mustache_param_list* asList = (mustache_param_list*)parent;
+        return asList->valueCount;
+    }
+    else {
+        uint32_t c = 0;
+        while (parent)
+        {
+            c++;
+            parent = parent->pNext;
+        }
+        return c;
+    }
+}
+
+static mustache_param* get_nth_child(mustache_param* parent, int32_t idx) 
+{
+#ifndef NDEBUG
+    if (parent->type != MUSTACHE_PARAM_OBJECT && parent->type != MUSTACHE_PARAM_LIST) {
+        assert(00 && "get_nth_child: parent IS NOT A VALID PARENT.");
+    }
+#endif // !NDEBUG
+    uint32_t childCount = get_parent_child_count(parent);
+    if (idx < 0) {
+        idx = childCount +idx;
+    }
+
+    uint32_t i = 0;
+    mustache_param* child = ((mustache_param_object*)parent)->pMembers;
+    while (i!=idx && child && i < childCount)
+    {
+        i++;
+        child = child->pNext;
+    }
+    return child;
+}
+
+
 static mustache_param* resolve_param_member(mustache_param* root, const uint8_t* strFirst, const uint8_t* strEnd)
 {
 #ifndef NDEBUG
-    if (*strFirst !='.') {
+    if (*strFirst != '.' && *strFirst != '[') {
         assert(00 && "resolve_param_member: strFirst must be a string parameter chain, i.e. '.member.name'");
     }
 #endif // !NDEBUG
@@ -959,37 +1107,53 @@ static mustache_param* resolve_param_member(mustache_param* root, const uint8_t*
     const uint8_t* cur = strFirst;
 
     mustache_param* param = root;
-    const uint8_t* lastDot = cur;
-    cur++;
+    const uint8_t* lastDot = NULL;
     while (cur <= strEnd)
     {
-        if (*cur == '.' || cur == strEnd)
-        {    
-            const uint8_t* nameBegin = lastDot + 1;
-            const uint8_t* nameEnd = cur;
-            uint32_t nameLen = nameEnd - nameBegin;
-
-            uint32_t i;
-            if (param->type == MUSTACHE_PARAM_LIST) {
-                mustache_param_list* asList = (mustache_param_list*)param;
-                i = asList->valueCount;
+        if (*cur == '[') {
+            const uint8_t* intFirst = cur+1;
+            while (*cur != ']' || cur == strEnd) {
+                cur++;
             }
-            else {
-                i = UINT32_MAX;
-            }
+            // resolve member
+            const uint8_t* intEnd = cur;
 
-            param = ((mustache_param_list*)param)->pValues;
-            while (param && i > 0)
-            {
-                if (nameLen == param->name.len && strneql(nameBegin, param->name.u, nameLen)) {
-                    break;
-                }
-                param = param->pNext;
-                i--;
-            }
-
-            if (!param) {
+            int32_t index = strtoi32(intFirst, intEnd - intFirst, NULL);
+            mustache_param* child = get_nth_child(root, index);
+            if (!child)
                 return NULL;
+            param = child;
+        }
+        else if (*cur == '.' || cur == strEnd)
+        {    
+            if (lastDot) {
+
+                const uint8_t* nameBegin = lastDot + 1;
+                const uint8_t* nameEnd = cur;
+                uint32_t nameLen = nameEnd - nameBegin;
+
+                uint32_t i;
+                if (param->type == MUSTACHE_PARAM_LIST) {
+                    mustache_param_list* asList = (mustache_param_list*)param;
+                    i = asList->valueCount;
+                }
+                else {
+                    i = UINT32_MAX;
+                }
+
+                param = ((mustache_param_list*)param)->pValues;
+                while (param && i > 0)
+                {
+                    if (nameLen == param->name.len && strneql(nameBegin, param->name.u, nameLen)) {
+                        break;
+                    }
+                    param = param->pNext;
+                    i--;
+                }
+
+                if (!param) {
+                    return NULL;
+                }
             }
             lastDot = cur;
         }
@@ -1044,11 +1208,29 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
                 }
             }
             else if (!mstruct->param) {
-                mstruct->param = get_parameter(m_name_first, m_name_end, globalParams, parentStack);
+                const uint8_t* m_first_end = m_name_first;
+                while (m_first_end<m_name_end) {
+                    if (*m_first_end == '.' || *m_first_end == '[') {
+                        break;
+                    }
+                    m_first_end++;
+                }
+
+
+                mstruct->param = get_parameter(m_name_first, m_first_end, globalParams, parentStack);
                 if (!mstruct->param) {
                     goto skip_node;
                 }
-                outputHead = write_variable(mstruct->param, outputHead, outputEnd);
+
+                if (m_first_end != m_name_end) {
+                    mustache_param* member = resolve_param_member(mstruct->param, m_first_end, m_name_end);
+                    if (member) {
+                        outputHead = write_variable(member, outputHead, outputEnd);
+                    }
+                }
+                else {
+                    outputHead = write_variable(mstruct->param, outputHead, outputEnd);
+                }
             }
         }
         else if (mstruct->type == STRUCTURE_TYPE_SCOPED_CARET || mstruct->type == STRUCTURE_TYPE_SCOPED_POUND) {

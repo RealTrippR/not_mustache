@@ -40,6 +40,9 @@
     <None Include="tests\m_ex_parsed.html">
       <Filter>tests</Filter>
     </None>
+    <None Include="tests\escape_html.html">
+      <Filter>tests</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="mustache\mustache.h">

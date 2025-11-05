@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 {{!A simple test of the C mustache templating engine}}
-<!DOCTYPE html>
-{{!A simple test of the C mustache templating engine}}
+
+<p>users[0]: {{users[0].data.name}}</p>
+
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -18,6 +19,7 @@
     <p>Please <a href="/login">log in</a> to continue.</p>
     {{/loggedIn}}
     ------------------------------------
+    user count: {{len(users)}}
     {{#users}}
     <p>{{.data.name}} is online.</p>
     {{/users}}
