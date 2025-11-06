@@ -75,6 +75,7 @@
         "ostream": "cpp",
         "text_encoding": "cpp",
         "variant": "cpp",
-        "set": "cpp"
+        "set": "cpp",
+        "streqlasm.h": "c"
     }
 }

@@ -9,7 +9,11 @@
     <title>{{title}}</title>
 </head>
 <body>
-    <h1>Hello, {{name}}!</h1>
+    /{{name}}:
+    <h1>Hello, {{name}}.</h1>
+    /{{&name}} prevents HTML escaping:
+    <h1>Hello, {{&name}}.</h1>
+
     <p>Welcome to {{site}}.</p>
     <p>Site up? {{site_up}}</p>
     {{#loggedIn}}

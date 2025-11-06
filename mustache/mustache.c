@@ -26,14 +26,18 @@ SOFTWARE.
 #include <string.h>
 #include <streql/streqlasm.h>
 #include <math.h>
+#include <stdio.h>
 
 #ifndef NDEBUG
 #include <assert.h>
 #endif // !NDEBUG
 
-#ifdef MUSTACHE_SYSTEM_TESTS
-#include <stdio.h>
-#endif // !MUSTACHE_SYSTEM_TESTS
+
+#if defined(_MSC_VER)
+#define alloca(N) _alloca(N)
+#else
+#define alloca(N) __builtin_alloca(N)
+#endif // !
 
 #define min(X, Y) ((X) < (Y) ? (X) : (Y))
 #define array_count(A) (sizeof(A)/sizeof(A[0]))
@@ -69,6 +73,7 @@ typedef struct structure {
 
     uint32_t contentsFirst; // the first byte after the second '{'
     uint32_t contentsEnd; // the first closing '}'
+    uint32_t precedingMustacheLen;
 
     mustache_param* param;
     standalone_data* standalone;
@@ -81,6 +86,8 @@ typedef struct {
 
     uint32_t skipFirst;
     uint32_t skipLast;
+    uint32_t precedingMustacheLen;
+
 } skip_range_structure;
 
 typedef struct {
@@ -88,8 +95,9 @@ typedef struct {
     structure* pLast;
     STRUCTURE_TYPE type;
 
-    uint32_t skipFirst;
-    uint32_t skipLast;
+    uint32_t contentsFirst;
+    uint32_t contentsEnd;
+    uint32_t precedingMustacheLen;
 
     mustache_param* param;
 
@@ -104,6 +112,7 @@ typedef struct {
 
     uint32_t contentsFirst; // the first byte after the second '{'
     uint32_t contentsEnd; // the first closing '}'
+    uint32_t precedingMustacheLen;
 
     mustache_param* param;
     standalone_data* standalone;
@@ -120,6 +129,7 @@ typedef struct {
 
     mustache_param* param;
     standalone_data* standalone;
+    uint32_t precedingMustacheLen;
 
     uint32_t interiorFirst; // the first byte of the interior
     uint32_t interiorEnd; // the end of the interior - the first opening bracket of it's closing mustache '{{/name}}'
@@ -136,6 +146,7 @@ typedef struct {
 
     uint32_t contentsFirst; // the first byte after the second '{'
     uint32_t contentsEnd; // the first closing '}'
+    uint32_t precedingMustacheLen;
 
     mustache_param* param;
     standalone_data* standalone;
@@ -258,7 +269,8 @@ static uint32_t u32_round_to_next_power_of_2(uint32_t v) {
     return v;
 }
 
-uint8_t digits_i64(int64_t n) {
+static uint8_t digits_i64(int64_t n) {
+    if (n<0) {n = n * -1;}
     if (n < 10) return 1;
     if (n < 100) return 2;
     if (n < 1000) return 3;
@@ -277,10 +289,31 @@ uint8_t digits_i64(int64_t n) {
     if (n < 10000000000000000) return 16;
     if (n < 100000000000000000) return 17;
     if (n < 1000000000000000000) return 18;
-    if (n < 10000000000000000000) return 19;
     return 0;
 }
 
+
+static uint8_t digits_u32(uint32_t n) {
+    if (n < 10) return 1;
+    if (n < 100) return 2;
+    if (n < 1000) return 3;
+    if (n < 10000) return 4;
+    if (n < 100000) return 5;
+    if (n < 1000000) return 6;
+    if (n < 10000000) return 7;
+    if (n < 100000000) return 8;
+    if (n < 1000000000) return 9;
+    if (n < 10000000000) return 10;
+    if (n < 100000000000) return 11;
+    if (n < 1000000000000) return 12;
+    if (n < 10000000000000) return 13;
+    if (n < 100000000000000) return 14;
+    if (n < 1000000000000000) return 15;
+    if (n < 10000000000000000) return 16;
+    if (n < 100000000000000000) return 17;
+    if (n < 1000000000000000000) return 18;
+    return 0;
+}
 static int16_t i64toa(int64_t n,uint8_t* buf, size_t size)
 {
     int8_t dig = digits_i64(n);
@@ -357,6 +390,24 @@ static uint16_t dtoalen(double value, uint16_t precision, bool trimZeros) {
     }
 
     return len;
+}
+
+// converts a u32 to a string and returns the end of the write position.
+static uint8_t* u32toa(uint32_t value, uint8_t* buf, size_t bufsize)
+{
+    uint8_t digits = digits_u32(value);
+    uint8_t* bufEnd = buf + bufsize - 1;
+    uint8_t i = 0;
+    while (value && buf < bufEnd)
+    {
+        uint8_t* pos = buf + digits - i - 1;
+        if (pos<bufEnd) {
+            *pos = value % 10 + '0';
+        }
+        value /= 10;
+        i++;
+    }
+    return buf+i;
 }
 
 // converts a double to string and returns the write head
@@ -447,36 +498,6 @@ static size_t fread_callback(void* udata, uint8_t* dst, size_t dstlen)
 }
 
 
-
-uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filename, mustache_template_cache* streamCache, MUSTACHE_CACHE_MODE cacheMode, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* uData, mustache_parse_callback parseCallback)
-{   
-   
-#ifndef NDEBUG
-    if (filename.len > 2048) {
-        assert(00 && "mustache_parse_file: SUCH A LARGE FILENAME MAY RESULT IN PROGRAM INSTABILITY!");
-    }
-#endif
-    // tragically fopen requires a null terminated string, and there is no workaround even for an all-around 
-    // system specific design, it's possible on Windows but not on Linux to my knowledge :(
-    uint8_t* filenameNT = _alloca(filename.len+1);
-    memcpy(filenameNT, filename.u, filename.len);
-    filenameNT[filename.len] = 0;
-
-    FILE* fptr;
-    fptr = fopen(filenameNT, "rb");
-    if (!fptr) {
-        return MUSTACHE_ERR_FILE_OPEN;
-    }
-
-    // parse in chunks
-    mustache_stream stream = {
-        .udata = fptr,
-        .readCallback = fread_callback,
-        .seekCallback = fseek_callback,
-    };
-
-    return mustache_parse_stream(parser, &stream, streamCache, cacheMode, params, parseBuffer, sourceBuffer, uData, parseCallback);
-}
 
 static scoped_structure* get_scoped_close_parent(close_structure* close)
 {
@@ -740,7 +761,7 @@ static mustache_param* get_child_param(uint8_t* nameBegin, uint8_t nameLen, must
     return NULL;
 }
 
-static uint8_t* write_variable(mustache_param* paramBASE, uint8_t* outputHead, uint8_t* outputEnd)
+static uint8_t* write_variable(mustache_param* paramBASE, uint8_t* outputHead, uint8_t* outputEnd, bool escapeHTML)
 {
     if (paramBASE->type == MUSTACHE_PARAM_NUMBER) {
         mustache_param_number* param = (mustache_param_number*)paramBASE;
@@ -764,9 +785,56 @@ static uint8_t* write_variable(mustache_param* paramBASE, uint8_t* outputHead, u
         mustache_param_string* param = (mustache_param_string*)paramBASE;
 
         uint32_t distToEnd = outputEnd - outputHead;
-        uint32_t dist = min(distToEnd, param->str.len);
-        memcpy(outputHead, param->str.u, dist);
-        outputHead += dist;
+
+        if (escapeHTML) {
+            /*
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            */
+            uint8_t* cur = param->str.u;
+            uint8_t* end = param->str.u + param->str.len;
+            while (cur<end && outputHead < outputEnd)
+            {
+                if (*cur == '&') {
+                    uint8_t dist = min(outputEnd - outputHead, strlen("&amp;"));
+                    memcpy(outputHead, "&amp;", dist);
+                    outputHead += dist;
+                }
+                else if (*cur == '<') {
+                    uint8_t dist = min(outputEnd - outputHead, strlen("&lt;"));
+                    memcpy(outputHead, "&lt;", dist);
+                    outputHead += dist;
+                }
+                else if (*cur == '>') {
+                    uint8_t dist = min(outputEnd - outputHead, strlen("&gt;"));
+                    memcpy(outputHead, "&gt;", dist);
+                    outputHead += dist;
+                }
+                else if (*cur == '"') {
+                    uint8_t dist = min(outputEnd - outputHead, strlen("&quot;"));
+                    memcpy(outputHead, "&quot;", dist);
+                    outputHead += dist;
+                }
+                else if (*cur == '\'') {
+                    uint8_t dist = min(outputEnd - outputHead, strlen("&#039;"));
+                    memcpy(outputHead, "&#039;", dist);
+                    outputHead += dist;
+                }
+                else {
+                    *outputHead = *cur;
+                    outputHead++;
+                }
+                cur++;
+            }
+        }
+        else {
+            uint32_t dist = min(distToEnd, param->str.len);
+            memcpy(outputHead, param->str.u, dist);
+            outputHead += dist;
+        }
     }
    
     return outputHead;
@@ -848,6 +916,7 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
     {
         if (is_mustache_open(inputHead))
         {
+            uint8_t precedingStacheLen=2;
             uint8_t* first = inputHead+2;
             uint8_t* end = get_mustache_close(first, inputEnd);
             structure* mstruct = NULL;
@@ -993,9 +1062,20 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
                 mstruct->param = NULL;
                 mstruct->pNext = NULL;
                 if (!mstruct) {
-                    return MUSTACHE_ERR_ALLOC; }
+                    return MUSTACHE_ERR_ALLOC;
+                }
 
                 mstruct->type = STRUCTURE_TYPE_VAR;
+
+                var_structure* asVar = (var_structure*)mstruct;
+
+                if (*first == '&') {
+                    first++;
+                    asVar->escapeHTML = false;
+                    precedingStacheLen = 3;
+                } else {
+                    asVar->escapeHTML = true;
+                }
             }
 
             if (mstruct->type != STRUCTURE_TYPE_SKIP_RANGE) {
@@ -1006,6 +1086,7 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
 
             last_struct->pNext = mstruct;
             mstruct->pLast = last_struct;
+            mstruct->precedingMustacheLen = precedingStacheLen;
             last_struct = mstruct;
         }
         
@@ -1187,13 +1268,36 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
             t = input + asSkipRange->skipLast;
             lastNonEscaped = t;
         }
+        else if (mstruct->type == STRUCTURE_TYPE_LEN)
+        {
+            const uint8_t* m_len_str_first = input + mstruct->contentsFirst;
+            const uint8_t* m_len_str_end = input + mstruct->contentsEnd;
+
+            len_structure* asLen = (len_structure*)mstruct;
+            const uint8_t* int_begin = input + asLen->interiorFirst;
+            const uint8_t* int_end = input + asLen->interiorEnd;
+
+
+            outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, m_len_str_first - mstruct->precedingMustacheLen);
+
+
+            if (!asLen->param) {
+                mstruct->param = get_parameter(int_begin, int_end, globalParams, parentStack);
+            }
+            if (asLen->param) {
+                uint32_t cc = get_parent_child_count(mstruct->param);
+                outputHead = u32toa(cc, outputHead, (size_t)(outputEnd - outputHead));
+                lastNonEscaped = m_len_str_end + strlen("}}");
+            }
+        }
         else if (mstruct->type == STRUCTURE_TYPE_VAR) 
         {
+            var_structure* asVar = (var_structure*)mstruct;
             const uint8_t* m_name_first = input + mstruct->contentsFirst;
             const uint8_t* m_name_end = input + mstruct->contentsEnd;
             const uint32_t nameLen = m_name_end - m_name_first;
 
-            outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, m_name_first - 2);
+            outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, m_name_first - mstruct->precedingMustacheLen);
             lastNonEscaped = m_name_end + strlen("{{");
 
             // HANDLE '.' CASE
@@ -1204,7 +1308,7 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
                 // resolve '.' or chains '.member.name'
                 mustache_param* member = resolve_param_member(m_child, m_name_first, m_name_end);
                 if (member) {
-                    outputHead = write_variable(member, outputHead, outputEnd);
+                    outputHead = write_variable(member, outputHead, outputEnd, asVar->escapeHTML);
                 }
             }
             else if (!mstruct->param) {
@@ -1225,11 +1329,11 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
                 if (m_first_end != m_name_end) {
                     mustache_param* member = resolve_param_member(mstruct->param, m_first_end, m_name_end);
                     if (member) {
-                        outputHead = write_variable(member, outputHead, outputEnd);
+                        outputHead = write_variable(member, outputHead, outputEnd, asVar->escapeHTML);
                     }
                 }
                 else {
-                    outputHead = write_variable(mstruct->param, outputHead, outputEnd);
+                    outputHead = write_variable(mstruct->param, outputHead, outputEnd, asVar->escapeHTML);
                 }
             }
         }
@@ -1294,7 +1398,6 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
                     }
                     outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
                     lastNonEscaped = input + asScoped->interiorEnd+nameLen+strlen("{{x}}");
-                    int i = 0;
                 }
             }
         }
@@ -1357,8 +1460,9 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
     return MUSTACHE_SUCCESS;
 }
 
-static void free_structure_chain(mustache_parser* p, structure* root)
+void mustache_tructure_chain_free(mustache_structure* structure_chain)
 {
+    structure* root = (structure*)structure_chain;
     root = root->pNext;
     while (root)
     {
@@ -1369,13 +1473,44 @@ static void free_structure_chain(mustache_parser* p, structure* root)
     }
 }
 
-uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, mustache_template_cache* streamCache, MUSTACHE_CACHE_MODE cacheMode,
+
+
+uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filename, mustache_structure* structChain, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* uData, mustache_parse_callback parseCallback)
+{
+#ifndef NDEBUG
+    if (filename.len > 2048) {
+        assert(00 && "mustache_parse_file: SUCH A LARGE FILENAME MAY RESULT IN PROGRAM INSTABILITY!");
+    }
+#endif
+    // tragically fopen requires a null terminated string, and there is no workaround even for an all-around 
+    // system specific design, it's possible on Windows but not on Linux to my knowledge :(
+    uint8_t* filenameNT = alloca(filename.len + 1);
+    memcpy(filenameNT, filename.u, filename.len);
+    filenameNT[filename.len] = 0;
+
+    FILE* fptr;
+    fptr = fopen(filenameNT, "rb");
+    if (!fptr) {
+        return MUSTACHE_ERR_FILE_OPEN;
+    }
+
+    // parse in chunks
+    mustache_stream stream = {
+        .udata = fptr,
+        .readCallback = fread_callback,
+        .seekCallback = fseek_callback,
+    };
+
+    return mustache_parse_stream(parser, &stream, structChain, params, parseBuffer, sourceBuffer, uData, parseCallback);
+}
+
+
+
+uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, mustache_structure* structChain,
     mustache_param* params, mustache_slice inputBuffer, mustache_slice outputBuffer, void* uData, mustache_parse_callback parseCallback)
 {
     uint8_t* inputHead = inputBuffer.u;
     uint8_t* inputBeg = inputBuffer.u;
-    uint8_t transientBuffer[2048];
-    uint16_t transientBufferLen = 0;
 
     uint8_t* mustacheOpen = NULL;
     uint8_t* mustacheClose = inputBuffer.u;
@@ -1396,10 +1531,14 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, 
         .MAX_COUNT = parser->parentStackBuf.len / sizeof(void*)
     };
 
+
     structure structureRoot = { .type=STRUCTURE_TYPE_ROOT }; 
-    MUSTACHE_RES err = source_to_structured(parser, &structureRoot, inputBuffer.u,inputHead,inputEnd);
-    if (err) {
-        return err;
+    MUSTACHE_RES err;
+    if (!structureRoot.pNext) {
+        err = source_to_structured(parser, &structureRoot, inputBuffer.u, inputHead, inputEnd);
+        if (err) {
+            return err;
+        }
     }
 
     err = write_structured(
@@ -1413,22 +1552,11 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, 
         return err;
     }
 
-    free_structure_chain(parser,&structureRoot);
-
-
-
-
     mustache_slice parsedSlice = {
         .u = outputBuffer.u,
         .len = outputHead - outputBuffer.u,
     };
     parseCallback(parser, uData, parsedSlice);
-
-    readBytes = stream->readCallback(stream->udata, inputBuffer.u, inputBuffer.len);
-    if (readBytes == 0) {
-        //break;
-    }
-    //}
 
     return MUSTACHE_SUCCESS;
 }
