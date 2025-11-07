@@ -185,7 +185,7 @@ int main()
     }
 
 
-    mustache_structure_chain_free(); // <- if malloc was used for every node in the structure
+    mustache_structure_chain_free(&parser,&struct_chain); // <- if malloc was used for every node in the structure
     //   chain rather than a unified buffer is in the example here, this function would have
     //   to be called to release allocated memory.
 
