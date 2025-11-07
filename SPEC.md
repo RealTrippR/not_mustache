@@ -1,0 +1,4 @@
+####
+NOT-MUSTACHE SPECIFICIATION V 1.0
+November 7th, 2025
+####

@@ -24,7 +24,7 @@ SOFTWARE.
 
 #define MUSTACHE_SYSTEM_TESTS
 
-#include <mustache.h>
+#include <not_mustache.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
@@ -33,9 +33,10 @@ SOFTWARE.
 
 typedef struct
 {
-    void* block;
+    uint8_t* block;
     size_t size;
 } parser_udata;
+
 
 void* _alloc(mustache_parser* parser, size_t bytes) {
     parser_udata* udata = parser->userData;
@@ -52,6 +53,7 @@ void* _alloc(mustache_parser* parser, size_t bytes) {
 void _free(mustache_parser* parser, void* b) {
     //free(b);
 }
+
 
 void parse_callback(mustache_parser* parser, void* udata, mustache_slice parsed)
 {
@@ -88,8 +90,10 @@ int main()
         return -1;
     }
 
+
     mustache_print_parameter_list(jsonRoot);
 
+    mustache_free_param_list(&parser, jsonRoot, true);
 
     if (udata.block) {
         free(udata.block);

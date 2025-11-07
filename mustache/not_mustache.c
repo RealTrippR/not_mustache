@@ -20,7 +20,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ***************************************************/
 
-#include "mustache.h"
+#include "not_mustache.h"
 #include <string.h>
 #include <streql/streqlasm.h>
 #include <math.h>
@@ -1798,7 +1798,7 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
     return MUSTACHE_SUCCESS;
 }
 
-void mustache_tructure_chain_free(mustache_parser* p, mustache_structure* structure_chain)
+void mustache_structure_chain_free(mustache_parser* p, mustache_structure* structure_chain)
 {
     structure* root = (structure*)structure_chain;
     root = root->pNext;
@@ -1950,7 +1950,7 @@ uint8_t mustache_JSON_to_param_chain_from_disk(mustache_parser* parser, mustache
     rewind(fptr);
 
     void* JSON_buf;
-    bool isBufferOnStack = fileLen > (16384);
+    bool isBufferOnStack = fileLen < (16384);
 
     if (!isBufferOnStack) {
         JSON_buf = parser->alloc(parser, fileLen);
@@ -1961,7 +1961,7 @@ uint8_t mustache_JSON_to_param_chain_from_disk(mustache_parser* parser, mustache
 
     fread(JSON_buf, 1, fileLen, fptr);
 
-    uint8_t err = mustache_JSON_to_param_chain(parser, (mustache_const_slice){ JSON_buf, fileLen}, paramRoot, false);
+    uint8_t err = mustache_JSON_to_param_chain(parser, (mustache_const_slice){ JSON_buf, fileLen}, paramRoot, true);
 
     fclose(fptr);
     if (!isBufferOnStack) {
@@ -2284,11 +2284,16 @@ static uint8_t JSON_parse_key(mustache_parser* parser, mustache_param** paramOut
     }
 
     if (key_name.len > 0) {
-        asGenParam->name.u = parser->alloc(parser, key_name.len);
-        if (!asGenParam->name.u) {
-            return MUSTACHE_ERR_ALLOC;
+        if (deepCopy) {
+            asGenParam->name.u = parser->alloc(parser, key_name.len);
+            if (!asGenParam->name.u) {
+                return MUSTACHE_ERR_ALLOC;
+            }
+            memcpy((uint8_t*)asGenParam->name.u, key_name.u, key_name.len);
         }
-        memcpy((uint8_t*)asGenParam->name.u, key_name.u, key_name.len);
+        else {
+            asGenParam->name = key_name;
+        }
     }
     else {
         asGenParam->name.u = NULL;
@@ -2389,7 +2394,11 @@ uint8_t mustache_JSON_to_param_chain(mustache_parser* parser, mustache_const_sli
             if (err) {
                 break;
             }
-            root->name.u = "root";
+            root->name.u = parser->alloc(parser, 4);
+            if (!root->name.u)
+                return MUSTACHE_ERR_ALLOC;
+
+            memcpy((uint8_t*)root->name.u, "root", 4);
             root->name.len = strlen("root");
             root->pNext = NULL;
             *paramRoot = (mustache_param*)root;
@@ -2403,6 +2412,54 @@ uint8_t mustache_JSON_to_param_chain(mustache_parser* parser, mustache_const_sli
 
 
 
+// FORWARD DECLARATION
+static void mustache_free_node(mustache_parser* parser, mustache_param* node, bool deepCopy);
+
+static void mustache_free_children(mustache_parser* parser, mustache_param* parent, bool deepCopy)
+{
+    uint32_t MAX_COUNT;
+    mustache_param_list* asList = (mustache_param_list*)parent;
+    if (parent->type == MUSTACHE_PARAM_LIST) {
+        MAX_COUNT = asList->valueCount;
+    }
+    else {
+        MAX_COUNT = UINT32_MAX;
+    }
+
+    mustache_param* child = asList->pValues;
+    uint32_t i = 0;
+    while (child && i < MAX_COUNT)
+    {
+        mustache_param* next = child->pNext;
+        mustache_free_node(parser, child, deepCopy);
+        child = next;
+        ++i;
+    }
+}
+
+static void mustache_free_node(mustache_parser* parser, mustache_param* node, bool deepCopy)
+{
+    if (deepCopy && node->name.u) {
+        parser->free(parser, (uint8_t*)node->name.u);
+    }
+    if (node->type == MUSTACHE_PARAM_STRING) {
+        mustache_param_string* asStr = (mustache_param_string*)node;
+        if (deepCopy && asStr->str.u) {
+            parser->free(parser, asStr->str.u);
+        }
+    } 
+    else if (node->type == MUSTACHE_PARAM_LIST || node->type == MUSTACHE_PARAM_OBJECT) {
+        mustache_free_children(parser, node, deepCopy);
+    }
+    parser->free(parser, node);
+}
+
+uint8_t mustache_free_param_list(mustache_parser* parser, mustache_param* paramRoot, bool deepCopy)
+{
+    mustache_free_node(parser, paramRoot, deepCopy);
+
+    return MUSTACHE_SUCCESS;
+}
 
 
 

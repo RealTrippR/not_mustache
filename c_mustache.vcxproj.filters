@@ -48,7 +48,7 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="mustache\mustache.h">
+    <ClInclude Include="mustache\not_mustache.h">
       <Filter>mustache</Filter>
     </ClInclude>
     <ClInclude Include="mustache\deps\streql\streqlasm.h">
@@ -56,7 +56,7 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="mustache\mustache.c">
+    <ClCompile Include="mustache\not_mustache.c">
       <Filter>mustache</Filter>
     </ClCompile>
     <ClCompile Include="tests\base_test.c">
@@ -66,6 +66,9 @@
       <Filter>tests</Filter>
     </ClCompile>
     <ClCompile Include="tests\JSON_parser_test.c">
+      <Filter>tests</Filter>
+    </ClCompile>
+    <ClCompile Include="tests\allocation_test.c">
       <Filter>tests</Filter>
     </ClCompile>
   </ItemGroup>

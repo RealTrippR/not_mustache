@@ -257,7 +257,7 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, 
 @param mustache_structure* structure_chain
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 *****/
-void mustache_tructure_chain_free(mustache_parser* parser, mustache_structure* structure_chain);
+void mustache_structure_chain_free(mustache_parser* parser, mustache_structure* structure_chain);
 
 
 /*****
@@ -291,6 +291,23 @@ uint8_t mustache_JSON_to_param_chain_from_disk(mustache_parser* parser, mustache
 *****/
 uint8_t mustache_JSON_to_param_chain(mustache_parser* parser, mustache_const_slice JSON, mustache_param** paramRoot, bool deepCopyData);
 
+
+
+/*****
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+
+-+- Converts JSON into a mustache parameter chain. -+-
+
+@param mustache_parser* parser
+@param mustache_const_slice - JSON source
+@param mustache_param* paramRoot - the parameter root
+@param bool deepCopyData - determines what data will be freed.
+
+@return uint8_t - MUSTACHE_RES return code.
+
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+*/
+uint8_t mustache_free_param_list(mustache_parser* parser, mustache_param* paramRoot, bool deepCopy);
 
 /*
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-

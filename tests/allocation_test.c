@@ -30,26 +30,14 @@ SOFTWARE.
 #include <stdio.h>
 #include <stdlib.h>
 
-typedef struct 
-{
-    void* block;
-    size_t size;
-} parser_udata;
 
 void* _alloc(mustache_parser* parser, size_t bytes) {
-    parser_udata* udata = parser->userData;
-    void* tmp = realloc(udata->block, udata->size+bytes);
-    if (!tmp) {
-        return NULL;
-    }
-    udata->size += bytes;
-    udata->block = tmp;
-    return (uint8_t*)udata->block + udata->size - bytes;
+    return malloc(bytes);
 }
 
 
 void _free(mustache_parser* parser, void* b) {
-    //free(b);
+    free(b);
 }
 
 void parse_callback(mustache_parser* parser, void* udata, mustache_slice parsed)
@@ -65,13 +53,11 @@ int main()
     uint8_t PARSER_OUTPUT_BUFFER[8192];
     uint8_t PARENT_STACK_BUFFER[2048];
 
-    parser_udata udata = { NULL };
-
     mustache_parser parser;
     parser.parentStackBuf = (mustache_slice){ PARENT_STACK_BUFFER,sizeof(PARENT_STACK_BUFFER) };
     parser.alloc = _alloc;
     parser.free = _free;
-    parser.userData = &udata;
+    parser.userData = NULL;
 
     mustache_param_string param_title = {
         .pNext = NULL,
@@ -128,7 +114,7 @@ int main()
         .name = {"name",strlen("name")},
         .str = {"HowardAtNASA",strlen("HowardAtNASA")}
     };
-    
+
     mustache_param_object userData1 = {
         .pNext = NULL,
          .type = MUSTACHE_PARAM_OBJECT,
@@ -141,7 +127,7 @@ int main()
         .name = {"u1",strlen("u1")},
         .pMembers = &userData1
     };
-    
+
     mustache_param_string name2 = {
        .pNext = NULL,
        .type = MUSTACHE_PARAM_STRING,
@@ -176,35 +162,30 @@ int main()
 
     FILE* fptr = fopen("basic_parsed.html", "wb");
     if (!fptr) {
-        fprintf(stderr,"FAILED TO OPEN FILE\n"); return -1;}
+        fprintf(stderr, "FAILED TO OPEN FILE\n"); return -1;
+    }
 
 
 
 
-    mustache_structure struct_chain = {0};
+    mustache_structure struct_chain = { 0 };
 
     if (mustache_parse_file(&parser, filenameSlice, &struct_chain,
         (mustache_param*)&param_list,
-        (mustache_slice){ PARSER_INPUT_BUFFER,sizeof(PARSER_INPUT_BUFFER) },
-        (mustache_slice){ PARSER_OUTPUT_BUFFER,sizeof(PARSER_OUTPUT_BUFFER) },
+        (mustache_slice) {
+        PARSER_INPUT_BUFFER, sizeof(PARSER_INPUT_BUFFER)
+    },
+        (mustache_slice) {
+        PARSER_OUTPUT_BUFFER, sizeof(PARSER_OUTPUT_BUFFER)
+    },
         fptr, parse_callback) != MUSTACHE_SUCCESS)
     {
         fprintf(stderr, "MUSTACHE: FAILED TO PARSE FILE\n");
-        if (udata.block) {
-            free(udata.block);
-        }
         return -1;
     }
 
 
-
-
-
-    if (udata.block) {
-        free(udata.block);
-    }
-
-    //   mustache_structure_chain_free() <- if malloc was used for every node in the structure
+    mustache_structure_chain_free(); // <- if malloc was used for every node in the structure
     //   chain rather than a unified buffer is in the example here, this function would have
     //   to be called to release allocated memory.
 
