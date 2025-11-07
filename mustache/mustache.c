@@ -642,7 +642,7 @@ static const uint8_t* get_key_value_end(const uint8_t* start, const uint8_t* sou
         }
         start++;
     }
-    return NULL;
+    return sourceEnd;
 }
 
 static int16_t i64toa(int64_t n,uint8_t* buf, size_t size)
@@ -2058,7 +2058,7 @@ static const uint8_t* JSON_get_number_end(const uint8_t* numFirst, const uint8_t
         numFirst++;
     }
 
-    return NULL;
+    return sourceEnd;
 }
 
 static void JSON_number_to_mustache_number(mustache_param_number* param, const uint8_t* numBegin, const uint8_t* numEnd)
@@ -2103,7 +2103,8 @@ static void JSON_number_to_mustache_number(mustache_param_number* param, const u
 
 
 
-static uint8_t JSON_parse_key(mustache_parser* parser, mustache_param** paramOut, const uint8_t** inputHead, mustache_const_slice key_name, const uint8_t* keyEnd, const uint8_t* sourceEnd, bool deepCopy)
+static uint8_t JSON_parse_key(mustache_parser* parser, mustache_param** paramOut, const uint8_t** inputHead, 
+    mustache_const_slice key_name, const uint8_t* keyEnd, const uint8_t* sourceEnd, bool deepCopy)
 {
     const uint8_t* cur = keyEnd;
 
@@ -2119,7 +2120,6 @@ static uint8_t JSON_parse_key(mustache_parser* parser, mustache_param** paramOut
         return MUSTACHE_ERR_INVALID_JSON;
     }
 
-    mustache_param* lastParam = NULL;
     mustache_param* asGenParam = NULL;
     if (*cur == '"') 
     {
@@ -2213,10 +2213,17 @@ static uint8_t JSON_parse_key(mustache_parser* parser, mustache_param** paramOut
             }
             cur++;
         }
+
+        *inputHead = listClose;
     }
     else if (*cur == '{') {
         // PARAM IS AN OBJECT
-        
+        assert(00 && "TO DO");
+
+
+
+
+        //*inputHead = close;
     }
     else if (isdigit(*cur)) {
         const uint8_t* numBegin = cur;
@@ -2286,10 +2293,7 @@ static uint8_t JSON_parse_key(mustache_parser* parser, mustache_param** paramOut
         asGenParam->name.u = NULL;
     }
     asGenParam->name.len = key_name.len;
-    if (lastParam) {
-        lastParam->pNext = asGenParam;
-    }
-    lastParam = asGenParam;
+    asGenParam->pNext = NULL;
 
     *paramOut = asGenParam;
 
@@ -2303,6 +2307,7 @@ static uint8_t JSON_parse_object(mustache_parser* parser, const uint8_t* opening
         return MUSTACHE_ERR_INVALID_JSON;
     }
 
+    mustache_param* lastParam = NULL;
     const uint8_t* cur = openingBracket + 1;
     while (cur < objClose)
     {
@@ -2335,9 +2340,15 @@ static uint8_t JSON_parse_object(mustache_parser* parser, const uint8_t* opening
             mustache_const_slice keyName = { nameBeg, nameEnd - nameBeg };
             // get value
             mustache_param* param = NULL;
-            uint8_t err = JSON_parse_key(parser,&param, &cur, keyName, colonEnd, objClose+1, deepCopy);
+            uint8_t err = JSON_parse_key(parser, &param, &cur, keyName, colonEnd, objClose+1, deepCopy);
             if (err) {
                 return err;
+            }
+            if (param) {
+                if (lastParam) {
+                    lastParam->pNext = param;
+                }
+                lastParam = param;
             }
         }
         cur++;
