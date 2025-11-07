@@ -1024,7 +1024,7 @@ static mustache_param* get_parameter(const uint8_t* nameBegin, const uint8_t* na
             node = list->pValues;
         }
         else if (parentNode->type == MUSTACHE_PARAM_OBJECT) {
-            mustache_param_object* obj = (mustache_param_object*)obj;
+            mustache_param_object* obj = (mustache_param_object*)parentNode;
             node = obj->pMembers;
             MAX_COUNT = UINT32_MAX;
         }
@@ -2101,7 +2101,8 @@ static void JSON_number_to_mustache_number(mustache_param_number* param, const u
     param->value = round(param->value * scale) / scale;
 }
 
-
+// FORWARD DECLARATION
+static uint8_t JSON_parse_object(mustache_parser* parser, mustache_param_object** objOut, const uint8_t** inputHead, const uint8_t* openingBracket, const uint8_t* sourceEnd, bool deepCopy);
 
 static uint8_t JSON_parse_key(mustache_parser* parser, mustache_param** paramOut, const uint8_t** inputHead, 
     mustache_const_slice key_name, const uint8_t* keyEnd, const uint8_t* sourceEnd, bool deepCopy)
@@ -2218,12 +2219,12 @@ static uint8_t JSON_parse_key(mustache_parser* parser, mustache_param** paramOut
     }
     else if (*cur == '{') {
         // PARAM IS AN OBJECT
-        assert(00 && "TO DO");
-
-
-
-
-        //*inputHead = close;
+        mustache_param_object* param = NULL;
+        uint8_t err = JSON_parse_object(parser, &param, inputHead, cur, sourceEnd, deepCopy);
+        if (err || !param) {
+            return err;
+        }
+        asGenParam = (mustache_param*)param;
     }
     else if (isdigit(*cur)) {
         const uint8_t* numBegin = cur;
@@ -2254,7 +2255,6 @@ static uint8_t JSON_parse_key(mustache_parser* parser, mustache_param** paramOut
         }
         uint32_t len = end - cur;
         bool val;
-        // INVALID PARAM OR PARAM IS NULL
         if (len == 4 && strneql(cur, "true", 4)) {
             val = true;
         }
@@ -2262,6 +2262,7 @@ static uint8_t JSON_parse_key(mustache_parser* parser, mustache_param** paramOut
             val = false;
         }
         else {
+            // INVALID PARAM OR PARAM IS NULL
             *inputHead = end;
             return MUSTACHE_SUCCESS;
         }
@@ -2300,13 +2301,14 @@ static uint8_t JSON_parse_key(mustache_parser* parser, mustache_param** paramOut
     return MUSTACHE_SUCCESS;
 }
 
-static uint8_t JSON_parse_object(mustache_parser* parser, const uint8_t* openingBracket, const uint8_t* sourceEnd, bool deepCopy)
+static uint8_t JSON_parse_object(mustache_parser* parser, mustache_param_object** objOut, const uint8_t** inputHead, const uint8_t* openingBracket, const uint8_t* sourceEnd, bool deepCopy)
 {
     const uint8_t* objClose = JSON_get_object_close(openingBracket, sourceEnd);
     if (!objClose) {
         return MUSTACHE_ERR_INVALID_JSON;
     }
 
+    mustache_param* firstChild = NULL;
     mustache_param* lastParam = NULL;
     const uint8_t* cur = openingBracket + 1;
     while (cur < objClose)
@@ -2348,11 +2350,24 @@ static uint8_t JSON_parse_object(mustache_parser* parser, const uint8_t* opening
                 if (lastParam) {
                     lastParam->pNext = param;
                 }
+                else {
+                    firstChild = param;
+                }
                 lastParam = param;
             }
         }
         cur++;
     }
+
+    *inputHead = objClose;
+
+    mustache_param_object* obj = parser->alloc(parser, sizeof(mustache_param_object));
+    if (!obj) {
+        return MUSTACHE_ERR_ALLOC;
+    }
+    obj->type = MUSTACHE_PARAM_OBJECT;
+    obj->pMembers = firstChild;
+    *objOut = obj;
 
     return MUSTACHE_SUCCESS;
 }
@@ -2363,15 +2378,27 @@ uint8_t mustache_JSON_to_param_chain(mustache_parser* parser, mustache_const_sli
     const uint8_t* cur = jsonBeg;
     const uint8_t* jsonEnd = JSON.u + JSON.len;
 
+    uint8_t err = MUSTACHE_SUCCESS;
+
     while (cur < jsonEnd)
     {
-        if (*cur == '{') {
-            JSON_parse_object(parser, cur, jsonEnd, deepCopy);
+        if (*cur == '{') 
+        {
+            mustache_param_object* root = NULL;
+            err = JSON_parse_object(parser, &root, &cur, cur, jsonEnd, deepCopy);
+            if (err) {
+                break;
+            }
+            root->name.u = "root";
+            root->name.len = strlen("root");
+            root->pNext = NULL;
+            *paramRoot = (mustache_param*)root;
+            break; // ONLY 1 ROOT ALLOWED AS PER JSON STANDARD
         }
         cur++;
     }
 
-    return MUSTACHE_SUCCESS;
+    return err;
 }
 
 
@@ -2387,9 +2414,100 @@ uint8_t mustache_JSON_to_param_chain(mustache_parser* parser, mustache_const_sli
 #ifdef MUSTACHE_SYSTEM_TESTS
 #include <stdio.h>
 
+
+static void mustache_print_list(mustache_param* ____, int depth)
+{
+    mustache_param_list* obj = (mustache_param_list*)____;
+    mustache_param* node = obj->pValues;
+    uint32_t i = 0;
+    while (node && i < obj->valueCount)
+    {
+        mustache_print_node(node, depth+1);
+        printf("\n");
+        node = node->pNext;
+        i++;
+    }
+}
+
+static void mustache_print_object(mustache_param* ____, int depth)
+{
+    mustache_param_object* obj = (mustache_param_object*)____;
+    mustache_param* node = obj->pMembers;
+    while (node)
+    {
+        mustache_print_node(node,depth+1);
+        printf("\n");
+        node = node->pNext;
+    }
+}
+
+void mustache_print_node(mustache_param* node, int depth)
+{
+    for (int i = 0; i < depth; ++i) {
+        printf("   ");
+    }
+    if (node->type == MUSTACHE_PARAM_LIST) {
+        if (node->name.u) {
+            if (node->name.len) {
+                printf("\"%.*s\": [\n", node->name.len, node->name.u);
+            }
+            mustache_print_list(node, depth);
+
+            for (int i = 0; i < depth; ++i) {
+                printf("   ");
+            }
+            printf("]");
+        }
+    }
+    else if (node->type == MUSTACHE_PARAM_OBJECT) {
+        if (node->name.len) {
+            printf("\"%.*s\": {\n", node->name.len, node->name.u);
+        }
+        mustache_print_object(node, depth);
+
+        for (int i = 0; i < depth; ++i) {
+            printf("   ");
+        }
+        printf("}");
+    }
+    else if (node->type == MUSTACHE_PARAM_STRING) {
+        mustache_param_string* nstr = (mustache_param_string*)node;
+        if (node->name.len) {
+            printf("\"%.*s\": ", node->name.len, node->name.u);
+        }
+        printf("\"%.*s\"", nstr->str.len, nstr->str.u);
+    }
+    else if (node->type == MUSTACHE_PARAM_NUMBER) {
+        mustache_param_number* nno = (mustache_param_number*)node;
+        if (node->name.len) {
+            printf("\"%.*s\": ", node->name.len, node->name.u);
+        }
+        printf("%f", nno->value);
+    }
+    else if (node->type == MUSTACHE_PARAM_BOOLEAN) {
+        mustache_param_boolean* nbool = (mustache_param_boolean*)node;
+        if (node->name.len) {
+            printf("\"%.*s\": ", node->name.len, node->name.u);
+        }
+        if (nbool->value) {
+            printf("true");
+        }
+        else {
+            printf("false");
+        }
+    }
+    else {
+        printf("\"%.*s\": !!INVALID PARAMETER!!", node->name.len, node->name.u);
+    }
+}
+
 void mustache_print_parameter_list(mustache_param* root)
 {
-
+    while (root)
+    {
+        mustache_print_node(root,0);
+        root = root->pNext;
+    }
 }
 
 #endif // MUSTACHE_SYSTEM_TESTS

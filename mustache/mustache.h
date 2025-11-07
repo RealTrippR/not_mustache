@@ -199,6 +199,7 @@ typedef struct mustache_structure
     void*           __G;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
     void*           __H;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
 } mustache_structure;
+
 /* ====== FUNCTION CALLBACK TYPES ====== */
 
 typedef void (*mustache_parse_callback)(mustache_parser* parser, void* udata, mustache_slice parsed);
@@ -300,6 +301,8 @@ uint8_t mustache_JSON_to_param_chain(mustache_parser* parser, mustache_const_sli
 */
 
 #ifdef MUSTACHE_SYSTEM_TESTS
+
+void mustache_print_node(mustache_param* node, int depth);
 
 void mustache_print_parameter_list(mustache_param* root);
 

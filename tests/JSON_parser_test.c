@@ -29,6 +29,7 @@ SOFTWARE.
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <crtdbg.h>
 
 typedef struct
 {
@@ -61,6 +62,10 @@ void parse_callback(mustache_parser* parser, void* udata, mustache_slice parsed)
 
 int main()
 {
+#ifndef NDEBUG
+    _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+    _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
+#endif /* !NDEBUG */
 
     printf("TODO: ADD XML PARSING SUPPORT.\n");
 
@@ -76,14 +81,19 @@ int main()
     parser.free = _free;
     parser.userData = &udata;
 
-    mustache_param* firstParameter;
-    uint8_t err =mustache_JSON_to_param_chain_from_disk(&parser, (mustache_const_slice){ "test.json",strlen("test.json") }, &firstParameter);
+    mustache_param* jsonRoot;
+    uint8_t err = mustache_JSON_to_param_chain_from_disk(&parser, (mustache_const_slice){ "test.json",strlen("test.json") }, &jsonRoot);
     if (err) {
         printf("FAILED TO PARSE JSON FILE");
         return -1;
     }
 
-    mustache_print_parameter_list(firstParameter);
+    mustache_print_parameter_list(jsonRoot);
+
+
+    if (udata.block) {
+        free(udata.block);
+    }
 
     return 0;
 }
