@@ -43,6 +43,9 @@
     <None Include="tests\escape_html.html">
       <Filter>tests</Filter>
     </None>
+    <None Include="tests\test.json">
+      <Filter>tests</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="mustache\mustache.h">
@@ -60,6 +63,9 @@
       <Filter>tests</Filter>
     </ClCompile>
     <ClCompile Include="tests\condtionals_test.c">
+      <Filter>tests</Filter>
+    </ClCompile>
+    <ClCompile Include="tests\JSON_parser_test.c">
       <Filter>tests</Filter>
     </ClCompile>
   </ItemGroup>

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+
+<p>users[0]: Elise_06</p>
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Generic Webpage</title>
+</head>
+<body>
+    {{name}}: - by default, HTML is escaped:
+    <h1>Hello, &#039;&lt;script&gt; alert(&quot;&amp;you&#039;re hacked&quot;) &lt;/script&gt;&#039;the name is Tripp.</h1>
+    {{&name}} - permits raw HTML:
+    <h1>Hello, '<script> alert("&you're hacked") </script>'the name is Tripp.</h1>
+
+    <p>Welcome to The World Wide Web.</p>
+    <p>Site up? true</p>
+    <p>You are logged in and have 27 new messages.</p>
+     this line is not standalone.
+    ------------------------------------
+    user count: 2
+    <p>Elise_06 is online.</p>
+    <p>HowardAtNASA is online.</p>
+
+    Here is an escaped mustache: {{ESCAPED}}
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "senior": true,
+  "fruits": [
+    "apple",
+    "banana",
+    "orange",
+    "grape",
+    10,
+    false
+  ],
+  "user": {
+    "name": "Tripp R.",
+    "age": 25,
+    "address": {
+      "street": "123 Maple Drive",
+      "city": "Huntsville",
+      "state": "SC"
+    }
+  }
+}

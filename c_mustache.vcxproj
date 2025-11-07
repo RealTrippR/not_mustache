@@ -136,13 +136,17 @@
     <None Include="tests\m_ex.html" />
     <None Include="tests\makefile" />
     <None Include="tests\m_ex_parsed.html" />
+    <None Include="tests\test.json" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="mustache\mustache.c" />
-    <ClCompile Include="tests\base_test.c" />
+    <ClCompile Include="tests\base_test.c">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="tests\condtionals_test.c">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="tests\JSON_parser_test.c" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="tests\txt.txt" />

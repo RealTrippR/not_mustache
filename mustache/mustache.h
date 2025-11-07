@@ -1,5 +1,5 @@
-/***************************************************
-MIT License
+/*
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- 
 
 Copyright (C) 2025 Tripp R
 
@@ -20,7 +20,9 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-***************************************************/
+
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+*/
 
 #ifndef MUSTACHE_H
 #define MUSTACHE_H
@@ -42,14 +44,15 @@ typedef enum {
     MUSTACHE_ERR_INCOMPLETE,
     MUSTACHE_ERR_STREAM,
     MUSTACHE_ERR_ARGS,
-    MUSTACHE_ERR_INVALID_CACHE,
-    MUSTACHE_ERR_INVALID_TEMPLATE
+    MUSTACHE_ERR_INVALID_TEMPLATE,
+    MUSTACHE_ERR_INVALID_JSON
 } MUSTACHE_RES;
 
 typedef enum {
     MUSTACHE_SEEK_SET = 0,
     MUSTACHE_SEEK_CUR = 1,
-    MUSTACHE_SEEK_END = 2
+    MUSTACHE_SEEK_END = 2,
+    MUSTACHE_SEEK_LEN = 3
 } MUSTACHE_SEEK_DIR;
 
 typedef enum {
@@ -85,7 +88,7 @@ typedef struct mustache_structure mustache_structure;
 
 /* ====== FUNCTION CALLBACK TYPES ====== */
 
-typedef int32_t (*mustache_seek_callback)(void* udata, int64_t whence, MUSTACHE_SEEK_DIR seekdir);
+typedef uint64_t (*mustache_seek_callback)(void* udata, int64_t whence, MUSTACHE_SEEK_DIR seekdir);
 
 typedef size_t (*mustache_read_callback)(void* udata, uint8_t* dst, size_t dstlen);
 
@@ -187,14 +190,14 @@ typedef struct mustache_stream
 
 typedef struct mustache_structure 
 {
-    void*           __A;
-    void*           __B;
-    MUSTACHE_RES    __C;
-    uint32_t        __D;
-    uint32_t        __C;
-    uint32_t        __E;
-    void*           __F;
-    void*           __G;
+    void*           __A;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
+    void*           __B;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
+    MUSTACHE_RES    __C;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
+    uint32_t        __D;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
+    uint32_t        __E;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
+    uint32_t        __F;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
+    void*           __G;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
+    void*           __H;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
 } mustache_structure;
 /* ====== FUNCTION CALLBACK TYPES ====== */
 
@@ -203,10 +206,103 @@ typedef void (*mustache_parse_callback)(mustache_parser* parser, void* udata, mu
 
 /* ====== FUNCTIONS ====== */
 
-uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filename, mustache_structure* structChain, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* uData, mustache_parse_callback parseCallback);
+/*****
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 
-uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, mustache_structure* structChain, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* uData, mustache_parse_callback parseCallback);
+-+- Parses a mustache template source from disk. -+-
 
-void mustache_tructure_chain_free(mustache_structure* structure_chain);
+@param mustache_parser* parser
+@param mustache_const_slice filename
+@param mustache_structure* structChain - a pointer to a chain of mustache structures
+@param mustache_param* params - the parameter chain
+@param mustache_slice sourceBuffer - if the file length is larger than the source buffer, mustache_parse_file will return ERR_NO_SPACE
+@param mustache_slice parseBuffer - where the parsed template will be stored
+@param void* parseCallbackUdata - passed to the parseCallback function
+@param mustache_parse_callback - called upon parse completion
+
+@return uint8_t - MUSTACHE_RES return code.
+
+* -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+*****/
+uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filename, mustache_structure* structChain, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* parseCallbackUdata, mustache_parse_callback parseCallback);
+
+/*****
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- 
+
+-+- Parses a mustache template source from an input stream. -+-
+
+@param mustache_parser* parser
+@param mustache_stream - the input stream to parse from
+@param mustache_structure* structChain - a pointer to a chain of mustache structures
+@param mustache_param* params - the parameter chain
+@param mustache_slice sourceBuffer - if the stream length is larger than the source buffer, mustache_parse_file will return ERR_NO_SPACE
+@param mustache_slice parseBuffer - where the parsed template will be stored
+@param void* parseCallbackUdata - passed to the parseCallback function
+@param mustache_parse_callback - called upon parse completion.
+
+@return uint8_t - MUSTACHE_RES return code.      
+      
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+*****/
+uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, mustache_structure* structChain, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* parseCallbackUdata, mustache_parse_callback parseCallback);
+
+
+/*****
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+
+-+- Destroys a structure chain, calling parser->free for every node in the list. -+-
+
+@param mustache_parser* parser
+@param mustache_structure* structure_chain
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+*****/
+void mustache_tructure_chain_free(mustache_parser* parser, mustache_structure* structure_chain);
+
+
+/*****
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+
+-+- Converts JSON from a file on disk into a mustache parameter chain. -+-
+@param mustache_parser* parser
+@param mustache_const_slice filename
+@param mustache_param** paramRoot - pointer to a pointer to the beginning of the parameter chain.
+
+@return uint8_t - MUSTACHE_RES return code.
+
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+*****/
+uint8_t mustache_JSON_to_param_chain_from_disk(mustache_parser* parser, mustache_const_slice filename, mustache_param** paramRoot);
+
+
+/*****
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+
+-+- Converts JSON into a mustache parameter chain. -+-
+
+@param mustache_parser* parser
+@param mustache_const_slice - JSON source
+@param mustache_param** paramRoot - pointer to a pointer 
+@param bool deepCopyData - if true, the source data will be copied rather than shallowly referenced where applicable.
+
+@return uint8_t - MUSTACHE_RES return code.
+
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+*****/
+uint8_t mustache_JSON_to_param_chain(mustache_parser* parser, mustache_const_slice JSON, mustache_param** paramRoot, bool deepCopyData);
+
+
+/*
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+
+                                 SYSTEM TESTS & DEBUG TOOLS
+
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+*/
+
+#ifdef MUSTACHE_SYSTEM_TESTS
+
+void mustache_print_parameter_list(mustache_param* root);
+
+#endif // MUSTACHE_SYSTEM_TESTS
 
 #endif
