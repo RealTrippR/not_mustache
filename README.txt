@@ -1,4 +1,4 @@
-### C_MUSTACHE
+### NOT_MUSTACHE
 
 C mustache is a lightweight mustache template
 engine written in C.
