@@ -33,9 +33,9 @@
 
 [1.1 ............... Block Expressions](#block_expressions)  
 [1.2 ........................... Comments](#comments)  
-[1.3 ... Truthy / Falsy Expressions](#truthy_falsy)
-[1.4 ................. Standalone Lines](#standalones)
-[1.5 ....................... List Functions](#list_functions)
+[1.3 ... Truthy / Falsy Expressions](#truthy_falsy)  
+[1.4 ................. Standalone Lines](#standalones)  
+[1.5 ....................... List Functions](#list_functions)  
 
 
 <hr>
