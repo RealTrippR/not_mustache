@@ -33,19 +33,17 @@ SOFTWARE.
 
 typedef struct
 {
-    uint8_t* block;
+    void* block;
     size_t size;
+    size_t capacity;
 } parser_udata;
-
 
 void* _alloc(mustache_parser* parser, size_t bytes) {
     parser_udata* udata = parser->userData;
-    void* tmp = realloc(udata->block, udata->size + bytes);
-    if (!tmp) {
+    if (udata->size + bytes > udata->capacity) {
         return NULL;
     }
     udata->size += bytes;
-    udata->block = tmp;
     return (uint8_t*)udata->block + udata->size - bytes;
 }
 
@@ -75,7 +73,10 @@ int main()
     uint8_t PARSER_OUTPUT_BUFFER[8192];
     uint8_t PARENT_STACK_BUFFER[2048];
 
-    parser_udata udata = { NULL };
+
+    uint8_t PARSER_STRUCTURE_BUFFER[16384];
+    parser_udata udata = { PARSER_STRUCTURE_BUFFER,0,sizeof(PARSER_STRUCTURE_BUFFER) };
+
 
     mustache_parser parser;
     parser.parentStackBuf = (mustache_slice){ PARENT_STACK_BUFFER,sizeof(PARENT_STACK_BUFFER) };
@@ -94,10 +95,6 @@ int main()
     mustache_print_parameter_list(jsonRoot);
 
     mustache_free_param_list(&parser, jsonRoot, true);
-
-    if (udata.block) {
-        free(udata.block);
-    }
 
     return 0;
 }

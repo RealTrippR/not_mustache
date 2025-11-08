@@ -5,17 +5,17 @@
       <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
       <Extensions>h;hh;hpp;hxx;hm;inl;inc;xsd</Extensions>
     </Filter>
-    <Filter Include="mustache">
-      <UniqueIdentifier>{9b9d27b6-5d71-4c8b-8aca-7f3c701867a2}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="mustache\deps">
-      <UniqueIdentifier>{22f3c445-c327-4950-a5c4-927fa8c3522a}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="mustache\deps\steql">
-      <UniqueIdentifier>{338f3871-5394-477c-95a3-2088bf300d21}</UniqueIdentifier>
-    </Filter>
     <Filter Include="tests">
       <UniqueIdentifier>{09e1eb74-9f62-4c0a-9e13-dd07dd3a4c52}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src">
+      <UniqueIdentifier>{9b9d27b6-5d71-4c8b-8aca-7f3c701867a2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\deps">
+      <UniqueIdentifier>{22f3c445-c327-4950-a5c4-927fa8c3522a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\deps\steql">
+      <UniqueIdentifier>{338f3871-5394-477c-95a3-2088bf300d21}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -48,17 +48,6 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="mustache\not_mustache.h">
-      <Filter>mustache</Filter>
-    </ClInclude>
-    <ClInclude Include="mustache\deps\streql\streqlasm.h">
-      <Filter>mustache\deps\steql</Filter>
-    </ClInclude>
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="mustache\not_mustache.c">
-      <Filter>mustache</Filter>
-    </ClCompile>
     <ClCompile Include="tests\base_test.c">
       <Filter>tests</Filter>
     </ClCompile>
@@ -71,10 +60,21 @@
     <ClCompile Include="tests\allocation_test.c">
       <Filter>tests</Filter>
     </ClCompile>
+    <ClCompile Include="src\not_mustache.c">
+      <Filter>src</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Text Include="tests\txt.txt">
       <Filter>tests</Filter>
     </Text>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\deps\streql\streqlasm.h">
+      <Filter>src\deps\steql</Filter>
+    </ClInclude>
+    <ClInclude Include="src\not_mustache.h">
+      <Filter>src</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

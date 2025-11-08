@@ -24,4 +24,36 @@
 
     Here is an escaped mustache: {{ESCAPED}}
 </body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Generic Webpage</title>
+</head>
+<body>
+    {{name}}: - by default, HTML is escaped:
+    <h1>Hello, &#039;&lt;script&gt; alert(&quot;&amp;you&#039;re hacked&quot;) &lt;/script&gt;&#039;the name is Tripp.</h1>
+    /{{&name}} - permits raw HTML:
+    <h1>Hello, {{&name}}.</h1>
+
+    <p>Welcome to {{site}}.</p>
+    <p>Site up? {{site_up}}</p>
+    {{#loggedIn}}
+    <p>You are logged in and have {{messages}} new messages.</p>
+    {{/}} this line is not standalone.
+    {{^loggedIn}}
+    <p>Please <a href="/login">log in</a> to continue.</p>
+    {{/}}
+    ------------------------------------
+    user count: {{len(users)}}
+
+    <p>users[0]: {{users[0].data.name}}</p>
+
+    {{#users}}
+    <p>{{.data.name}} is online.</p>
+    {{/}}
+
+    {{!If / precedes a mustache, it will be escaped. For example: }}
+    Here is an escaped mustache: /{{ESCAPED}}
+</body>
 </html>

@@ -34,16 +34,15 @@ typedef struct
 {
     void* block;
     size_t size;
+    size_t capacity;
 } parser_udata;
 
 void* _alloc(mustache_parser* parser, size_t bytes) {
     parser_udata* udata = parser->userData;
-    void* tmp = realloc(udata->block, udata->size+bytes);
-    if (!tmp) {
+    if (udata->size + bytes > udata->capacity) {
         return NULL;
     }
     udata->size += bytes;
-    udata->block = tmp;
     return (uint8_t*)udata->block + udata->size - bytes;
 }
 
@@ -65,7 +64,8 @@ int main()
     uint8_t PARSER_OUTPUT_BUFFER[8192];
     uint8_t PARENT_STACK_BUFFER[2048];
 
-    parser_udata udata = { NULL };
+    uint8_t PARSER_STRUCTURE_BUFFER[32768];
+    parser_udata udata = { PARSER_STRUCTURE_BUFFER,0,sizeof(PARSER_STRUCTURE_BUFFER)};
 
     mustache_parser parser;
     parser.parentStackBuf = (mustache_slice){ PARENT_STACK_BUFFER,sizeof(PARENT_STACK_BUFFER) };
@@ -190,24 +190,18 @@ int main()
         fptr, parse_callback) != MUSTACHE_SUCCESS)
     {
         fprintf(stderr, "MUSTACHE: FAILED TO PARSE FILE\n");
-        if (udata.block) {
-            free(udata.block);
-        }
         return -1;
     }
 
 
 
-    //mustache_structure_chain_flush(&struct_chain); // <- this must be called if the
-    // parameters have changed since the last usage of the structure chain.
+    mustache_structure_chain_flush(&struct_chain); // <- this must be called before any
+    // calls to mustache_parse_file or mustache_parse_stream if the parameters for this
+    // structure chain have changed since the last usage of the structure chain.
 
-    if (udata.block) {
-        free(udata.block);
-    }
-
-    //   mustache_structure_chain_free() <- if malloc was used for every node in the structure
-    //   chain rather than a unified buffer is in the example here, this function would have
-    //   to be called to release allocated memory.
+    // mustache_structure_chain_free() <- if malloc was used for every node in the structure
+    // chain rather than a unified stack buffer is in the example here, this function would
+    // need to be called to release allocated memory.
 
     fclose(fptr);
 

@@ -1859,7 +1859,16 @@ void mustache_structure_chain_free(mustache_parser* p, mustache_structure* struc
     }
 }
 
-
+void mustache_structure_chain_flush(mustache_structure* structure_chain)
+{
+    structure* root = (structure*)structure_chain;
+    root = root->pNext;
+    while (root)
+    {
+        root->param = NULL;
+        root = root->pNext;
+    }
+}
 
 uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filename, mustache_structure* structChain, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* parseCallbackUdata, mustache_parse_callback parseCallback)
 {
@@ -1925,11 +1934,11 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, 
         .MAX_COUNT = parser->parentStackBuf.len / sizeof(void*)
     };
 
+    structure* structureRoot = (structure*)structChain;
 
-    structure structureRoot = { .type=STRUCTURE_TYPE_ROOT }; 
     MUSTACHE_RES err;
-    if (!structureRoot.pNext) {
-        err = source_to_structured(parser, &structureRoot, inputBuffer.u, inputHead, inputEnd);
+    if (!structureRoot->pNext) {
+        err = source_to_structured(parser, structureRoot, inputBuffer.u, inputHead, inputEnd);
         if (err) {
             return err;
         }
@@ -1939,7 +1948,7 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, 
         outputBuffer, &outputHead,
         (mustache_const_slice){ inputBuffer.u,inputBuffer.len },
         inputBuffer.u + readBytes,
-        &structureRoot, params, &parentStack
+        structureRoot, params, &parentStack
     );
 
     if (err) {
