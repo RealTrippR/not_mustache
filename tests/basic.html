@@ -1,11 +1,5 @@
 <!DOCTYPE html>
-{{#users}}
-
-<p>{{.data.name}} is online.</p>
-{{/}}
-
 {{!A simple test of the C mustache templating engine}}
-<p>users[0]: {{users[0].data.name}}</p>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -28,6 +22,11 @@
     ------------------------------------
     user count: {{len(users)}}
 
+    <p>users[0]: {{users[0].data.name}}</p>
+
+    {{#users}}
+    <p>{{.data.name}} is online.</p>
+    {{/}}
 
     {{!If / precedes a mustache, it will be escaped. For example: }}
     Here is an escaped mustache: /{{ESCAPED}}
