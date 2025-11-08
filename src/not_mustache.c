@@ -1785,7 +1785,6 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
                         t = input + mstruct->standalone->lineBegin;
                     } else {
                         t = m_name_first - strlen("{{x");
-                        //outputHead=write_identation(outputHead, );
                     }
                     outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
                     lastNonEscaped = input + asScoped->interiorEnd+nameLen+strlen("{{x}}");

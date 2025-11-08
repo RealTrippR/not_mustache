@@ -80,7 +80,7 @@ int main()
         .str = {"Generic Webpage",strlen("Generic Webpage")}
     };
 
-    uint8_t* myName = "'<script> alert(\"&you're hacked\") </script>'the name is Tripp";
+    uint8_t* myName = "'<script> alert(\"you're hacked\") </script>'the name is Tripp";
     mustache_param_string param_name = {
        .pNext = &param_title,
        .type = MUSTACHE_PARAM_STRING,

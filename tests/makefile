@@ -9,4 +9,6 @@ base_test: base_test.c
 base_test_run:
 	./base_test.exe
 
-#build_cli:
+
+bin/not_mustache.o: ../src/not_mustache.c ../src/not_mustache.h
+	gcc -c $(GEN_FLAGS) $(INCL) $(DEPS_SRC) ../src/not_mustache.c -o bin/not_mustache.o
