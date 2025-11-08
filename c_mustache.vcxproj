@@ -141,10 +141,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="mustache\not_mustache.c" />
-    <ClCompile Include="tests\allocation_test.c" />
-    <ClCompile Include="tests\base_test.c">
+    <ClCompile Include="tests\allocation_test.c">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="tests\base_test.c" />
     <ClCompile Include="tests\condtionals_test.c">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
     </ClCompile>

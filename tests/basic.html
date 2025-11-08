@@ -1,8 +1,11 @@
 <!DOCTYPE html>
+{{#users}}
+
+<p>{{.data.name}} is online.</p>
+{{/}}
+
 {{!A simple test of the C mustache templating engine}}
-
 <p>users[0]: {{users[0].data.name}}</p>
-
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -18,15 +21,13 @@
     <p>Site up? {{site_up}}</p>
     {{#loggedIn}}
     <p>You are logged in and have {{messages}} new messages.</p>
-    {{/loggedIn}} this line is not standalone.
+    {{/}} this line is not standalone.
     {{^loggedIn}}
     <p>Please <a href="/login">log in</a> to continue.</p>
-    {{/loggedIn}}
+    {{/}}
     ------------------------------------
     user count: {{len(users)}}
-    {{#users}}
-    <p>{{.data.name}} is online.</p>
-    {{/users}}
+
 
     {{!If / precedes a mustache, it will be escaped. For example: }}
     Here is an escaped mustache: /{{ESCAPED}}

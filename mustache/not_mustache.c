@@ -837,9 +837,43 @@ static size_t fread_callback(void* udata, uint8_t* dst, size_t dstlen)
 
 
 
-static scoped_structure* get_scoped_close_parent(close_structure* close)
+static scoped_structure* get_scoped_close_parent(structure* close, const uint8_t* interiorFirst, const uint8_t* sourceBegin)
 {
-    structure* cur = (structure*)close;
+    const uint8_t* cur = interiorFirst;
+    uint32_t depth = 0;
+
+
+    while (cur >= sourceBegin + 1) {
+        const uint8_t* blockBegin = NULL;
+        if (*cur == '{' && *(cur - 1) == '{' && *(cur - 2) != '/') {
+            if (*(cur + 1) == '#' || *(cur + 1) == '^') {
+                depth--;
+                if (depth == 0) {
+                    uint32_t sourceOffset = cur - sourceBegin + 1;
+                    // GET PARAMETER
+                    structure* curStr = (structure*)close;
+                    curStr = curStr->pLast;
+                    while (curStr)
+                    {
+                        if (curStr->contentsFirst == sourceOffset) {
+                            return (scoped_structure*)curStr;
+                        }
+                        curStr = curStr->pLast;
+                    }
+                    return NULL;
+                }
+            }
+            else if (*(cur + 1) == '/') {
+                depth++;
+                cur -= 1;
+            }
+            blockBegin = cur;
+        }
+        cur--;
+    }
+
+    return NULL;
+    /*structure* cur = (structure*)close;
     cur = cur->pLast;
     while (cur)
     {
@@ -848,7 +882,7 @@ static scoped_structure* get_scoped_close_parent(close_structure* close)
         }
         cur = cur->pLast;
     }
-    return NULL;
+    return NULL;*/
 }
 
 static uint8_t* get_truthy_close(mustache_const_slice paramName, uint8_t* cur, uint8_t* end)
@@ -1310,7 +1344,8 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
                     }
                     mstruct->type = STRUCTURE_TYPE_CLOSE;
                     close_structure* asClosed = (close_structure*)mstruct;
-                    asClosed->parent = NULL;
+                    asClosed->pLast = last_struct;
+                    asClosed->parent = get_scoped_close_parent(mstruct,first, inputFirst);
                 }
                 else {
                     mstruct = parser->alloc(parser, sizeof(structure));
@@ -1682,7 +1717,25 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
             const uint8_t* m_name_end = input + mstruct->contentsEnd;
 
             if (!mstruct->param) {
-                mstruct->param = get_parameter(m_name_first, m_name_end, globalParams, parentStack);
+
+                const uint8_t* m_first_end = m_name_first;
+                while (m_first_end < m_name_end) {
+                    if (*m_first_end == '.' || *m_first_end == '[') {
+                        break;
+                    }
+                    m_first_end++;
+                }
+
+                
+                mstruct->param = get_parameter(m_name_first, m_first_end, globalParams, parentStack);
+                if (!mstruct->param) {
+                    goto skip_node;
+                }
+
+                if (m_first_end != m_name_end) {
+                    mstruct->param = resolve_param_member(mstruct->param, m_first_end, m_name_end);
+                }
+
                 if (!mstruct->param) {
                     goto skip_node;
                 }
@@ -1746,14 +1799,12 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
 
             if (mstruct->type == STRUCTURE_TYPE_CLOSE)
             {
+                close_structure* asClose = (close_structure*)mstruct;
+
                 if (!mstruct->param) {
-                    mstruct->param = get_parameter(m_name_first, m_name_end, globalParams, parentStack);
+                    mstruct->param = asClose->parent->param;
                 }
 
-                close_structure* asClose = (close_structure*)mstruct;
-                if (!asClose->parent) {
-                    asClose->parent = get_scoped_close_parent(asClose);
-                }
                 if (!asClose->parent) {
                     return MUSTACHE_ERR_INVALID_TEMPLATE;
                 }
@@ -1781,8 +1832,6 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
                         }
                     }
                 }
-
-
             }
 
             eval_jump(mstruct, m_name_first, m_name_end, input, outputEnd, &outputHead, &lastNonEscaped);

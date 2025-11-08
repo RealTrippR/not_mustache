@@ -198,7 +198,8 @@ int main()
 
 
 
-
+    //mustache_structure_chain_flush(&struct_chain); // <- this must be called if the
+    // parameters have changed since the last usage of the structure chain.
 
     if (udata.block) {
         free(udata.block);

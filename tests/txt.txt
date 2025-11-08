@@ -19,7 +19,12 @@
   }
 }
 
-
+{{#users[0]}}
+ The first user exists.
+{{/}}
+{{#users}}
+<p>{{.data.name}} is online.</p>
+{{/}}
 
 <!DOCTYPE html>
 {{!A simple test of the C mustache templating engine}}
