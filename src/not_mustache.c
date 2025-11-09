@@ -1361,12 +1361,15 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
                 mstruct->pNext = NULL;
                 mstruct->pLast = last_struct;
                 mstruct->standalone = NULL;
+                asElse->close = NULL;
                 asElse->parent = get_scoped_else_parent(mstruct, first, inputFirst);
                 if (!asElse->parent) {
                     parser->free(parser, mstruct);
                     return MUSTACHE_ERR_INVALID_TEMPLATE;
                 }
-                asElse->parent->close_or_else = mstruct;
+                if (!asElse->parent->close_or_else) {
+                    asElse->parent->close_or_else = mstruct;
+                }
 
                 mstruct->contentsFirst = first - inputFirst;
                 mstruct->contentsEnd = end - inputFirst;
@@ -1461,7 +1464,17 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
                         parser->free(parser, mstruct);
                         return MUSTACHE_ERR_INVALID_TEMPLATE;
                     }
-                    asClosed->parent->close_or_else = (structure*)asClosed;
+                    if (asClosed->parent->type == STRUCTURE_TYPE_ELSE) {
+                        else_structure* asElse = (else_structure*)asClosed->parent;
+                        if (!asElse->close) {
+                            asElse->close = asClosed;
+                        }
+                    }
+                    else {
+                        if (!asClosed->parent->close_or_else) {
+                            asClosed->parent->close_or_else = (structure*)asClosed;
+                        }
+                    }
                 }
                 else {
                     mstruct = parser->alloc(parser, sizeof(structure));
@@ -1834,8 +1847,6 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
             const uint8_t* m_name_first = input + mstruct->contentsFirst + 1;
             const uint8_t* m_name_end = input + mstruct->contentsEnd;
 
-            close_structure* close = asElse->close;
-
             const uint8_t* interiorBegin = input + asElse->interiorBegin;
             const uint8_t* interiorEnd = input + asElse->contentsEnd;
 
@@ -1865,7 +1876,7 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
                     t = m_name_first - strlen("{{x");
                 }
                 outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
-                lastNonEscaped = input + close->contentsEnd + strlen("}}");
+                lastNonEscaped = input + asElse->close->contentsEnd + strlen("}}");
 
                 mstruct = (structure*)asElse->close;
                 goto skip_node_no_advance;

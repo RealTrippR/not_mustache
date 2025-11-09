@@ -1,13 +1,4 @@
 <!DOCTYPE html>
-{{#users[2]}}
-   The 3rd user exists.
-   User 1: {{users[0].data.name}}
-{{else}}
-   The 3rd user does not exist.
-   User 1: {{users[0].data.name}}
-{{/}}
-
-
 {{!A simple test of the C mustache templating engine}}
 <html lang="en">
 <head>
@@ -22,8 +13,17 @@
 
     <p>Welcome to {{site}}.</p>
     <p>Site up? {{site_up}}</p>
+
     {{#loggedIn}}
     <p>You are logged in and have {{messages}} new messages.</p>
+    /{{!Example of nested truthy/falsy statements:}}
+        {{#users[2]}}
+        The 3rd user exists.
+        User 1: {{users[0].data.name}}
+        {{else}}
+        The 3rd user does not exist.
+        User #2: {{users[1].data.name}}
+        {{/}}
     {{/}} this line is not standalone.
     {{^loggedIn}}
     <p>Please <a href="/login">log in to {{site}} </a> to continue.</p>
@@ -33,7 +33,7 @@
 
     {{#users[2]}}
     <p>users[2]: {{users[2].data.name}}</p>
-    The 3rd user does not exist.
+    The 3rd user does exist.
     {{/}}
 
     {{#users}}
