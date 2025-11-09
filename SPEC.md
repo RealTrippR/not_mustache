@@ -66,14 +66,14 @@ If a block is preceded by the opening string of chars, {{&, it's evaluated conte
 
 <hr>
 
-##### 1.2 - Comments <a id="truthy_falsy"></a>
+##### 1.2 - Comments <a id="comments"></a>
 Comments in not-mustache are identical to mustache:
 `{{!comment}}`
 where any string preceded by a `!` will be ignored.
 
 <hr>
 
-##### 1.3 - Truthy / Falsy Expressions <a id="comments"></a>
+##### 1.3 - Truthy / Falsy Expressions <a id="truthy_falsy"></a>
 Expressions preceded with the block opening `{{#` will be considered to be truthy, whereas expressions preceded with the `{{^` will be treated as falsy.
 
 An expression is truthy if:
@@ -97,6 +97,10 @@ Optionally, the name of the variable being closed may be written within the clos
 If the expression is truthy and the variable being checked in an array,
 it should act as a for-each rather than an if condition, with
 `{{.}}` refering to the current element of the array.
+
+
+The `{{else}}` block is a special block which is executed when the preceding expression evaluates as falsy. 
+It provides an alternative brack to the main {{#var}} or {{^var}} block that does not execute.
 
 
 <hr>
