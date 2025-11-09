@@ -64,7 +64,7 @@ int main()
     uint8_t PARSER_OUTPUT_BUFFER[8192];
     uint8_t PARENT_STACK_BUFFER[2048];
 
-    uint8_t PARSER_STRUCTURE_BUFFER[32768];
+    uint8_t PARSER_STRUCTURE_BUFFER[65536];
     parser_udata udata = { PARSER_STRUCTURE_BUFFER,0,sizeof(PARSER_STRUCTURE_BUFFER)};
 
     mustache_parser parser;
@@ -85,8 +85,7 @@ int main()
        .pNext = &param_title,
        .type = MUSTACHE_PARAM_STRING,
        .name = {"name",strlen("name")},
-       //.str = {"'Here to inject malicious HTML: <script> alert(\"&you're hacked\") </script> 'Tripp",strlen("Tripp")}
-        .str = {myName,strlen(myName)}
+       .str = {myName,strlen(myName)}
     };
 
     mustache_param_number param_number = {
@@ -189,6 +188,7 @@ int main()
         (mustache_slice){ PARSER_OUTPUT_BUFFER,sizeof(PARSER_OUTPUT_BUFFER) },
         fptr, parse_callback) != MUSTACHE_SUCCESS)
     {
+        // mustache_structure_chain_free()
         fprintf(stderr, "MUSTACHE: FAILED TO PARSE FILE\n");
         return -1;
     }

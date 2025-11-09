@@ -55,8 +55,10 @@ typedef enum
     STRUCTURE_TYPE_CLOSE,
     STRUCTURE_TYPE_SKIP_RANGE,
     STRUCTURE_TYPE_ROOT,
-    STRUCTURE_TYPE_LEN
+    STRUCTURE_TYPE_LEN,
+    STRUCTURE_TYPE_ELSE
 } STRUCTURE_TYPE;
+
 
 typedef struct {
     uint32_t lineBegin;
@@ -88,6 +90,7 @@ typedef struct {
 
 } skip_range_structure;
 
+
 typedef struct {
     structure* pNext;
     structure* pLast;
@@ -102,6 +105,7 @@ typedef struct {
     uint32_t interiorFirst; // the first byte of the interior var name
     uint32_t interiorEnd; // the last byte + 1 of the interior (the closing ')') after the name
 } len_structure;
+
 
 typedef struct {
     structure* pNext;
@@ -135,6 +139,7 @@ typedef struct {
     uint32_t curIdx; // current child index
     mustache_param* curChild;
 
+    structure* close_or_else;
 } scoped_structure;
 
 typedef struct {
@@ -149,9 +154,24 @@ typedef struct {
     mustache_param* param;
     standalone_data* standalone;
 
-    scoped_structure* parent;
+    scoped_structure* parent; // either of type close or type else
 } close_structure;
 
+typedef struct {
+    structure* pNext;
+    structure* pLast;
+    STRUCTURE_TYPE type;
+
+    uint32_t contentsFirst; // the first byte after the second '{'
+    uint32_t contentsEnd; // the first closing '}'
+    uint32_t precedingMustacheLen;
+    uint32_t interiorBegin;
+
+    standalone_data* standalone;
+
+    scoped_structure* parent;
+    close_structure* close;
+} else_structure;
 
 
 int32_t strtoi32(const char* str, uint8_t bufflen, int32_t* strLenOut)
@@ -267,6 +287,7 @@ static uint32_t u32_round_to_next_power_of_2(uint32_t v) {
     return v;
 }
 
+// returns the digits in an i64 from a lookup table
 static uint8_t digits_i64(int64_t n) {
     if (n<0) {n = n * -1;}
     if (n < 10) return 1;
@@ -290,7 +311,7 @@ static uint8_t digits_i64(int64_t n) {
     return 0;
 }
 
-
+// returns the digits in a u32 from a lookup table
 static uint8_t digits_u32(uint32_t n) {
     if (n < 10) return 1;
     if (n < 100) return 2;
@@ -645,6 +666,7 @@ static const uint8_t* get_key_value_end(const uint8_t* start, const uint8_t* sou
     return sourceEnd;
 }
 
+// converts an i64 to a NON null-terminated ASCII string and returns the number of digits written.
 static int16_t i64toa(int64_t n,uint8_t* buf, size_t size)
 {
     int8_t dig = digits_i64(n);
@@ -837,21 +859,62 @@ static size_t fread_callback(void* udata, uint8_t* dst, size_t dstlen)
 
 
 
-static scoped_structure* get_scoped_close_parent(structure* close, const uint8_t* interiorFirst, const uint8_t* sourceBegin)
+
+static scoped_structure* get_scoped_else_parent(const structure* close, const uint8_t* interiorFirst, const uint8_t* sourceBegin)
 {
     const uint8_t* cur = interiorFirst;
-    uint32_t depth = 0;
-
-
+    uint32_t depth = 1;
+    const uint8_t* blockEnd=NULL;
     while (cur >= sourceBegin + 1) {
         const uint8_t* blockBegin = NULL;
+        if (*cur == '}' && *(cur - 1) == '}') {
+            blockBegin = blockEnd;
+        }
+
         if (*cur == '{' && *(cur - 1) == '{' && *(cur - 2) != '/') {
             if (*(cur + 1) == '#' || *(cur + 1) == '^') {
                 depth--;
                 if (depth == 0) {
                     uint32_t sourceOffset = cur - sourceBegin + 1;
                     // GET PARAMETER
-                    structure* curStr = (structure*)close;
+                    const structure* curStr = (const structure*)close;
+                    curStr = curStr->pLast;
+                    while (curStr)
+                    {
+                        if (curStr->contentsFirst == sourceOffset) {
+                            return (scoped_structure*)curStr;
+                        }
+                        curStr = curStr->pLast;
+                    }
+                    return NULL;
+                }
+            }
+            else if (*(cur + 1) == '/') {
+                depth++;
+                cur -= 1;
+            }
+
+            blockEnd = NULL;
+            blockBegin = NULL;
+        }
+        cur--;
+    }
+
+    return NULL;
+}
+static scoped_structure* get_scoped_close_parent(const structure* close, const uint8_t* interiorFirst, const uint8_t* sourceBegin)
+{
+    const uint8_t* cur = interiorFirst;
+    uint32_t depth = 0;
+    while (cur >= sourceBegin + 1) {
+        const uint8_t* blockBegin = NULL;
+        if (*cur == '{' && *(cur - 1) == '{' && *(cur - 2) != '/') {
+            if (*(cur + 1) == '#' || *(cur + 1) == '^' || strneql(cur+1,"else",4)) {
+                depth--;
+                if (depth == 0) {
+                    uint32_t sourceOffset = cur - sourceBegin + 1;
+                    // GET PARAMETER
+                    const structure* curStr = (const structure*)close;
                     curStr = curStr->pLast;
                     while (curStr)
                     {
@@ -873,16 +936,6 @@ static scoped_structure* get_scoped_close_parent(structure* close, const uint8_t
     }
 
     return NULL;
-    /*structure* cur = (structure*)close;
-    cur = cur->pLast;
-    while (cur)
-    {
-        if (cur->param == close->param) {
-            return (scoped_structure*)cur;
-        }
-        cur = cur->pLast;
-    }
-    return NULL;*/
 }
 
 static uint8_t* get_truthy_close(mustache_const_slice paramName, uint8_t* cur, uint8_t* end)
@@ -994,7 +1047,8 @@ static bool is_line_standalone(uint8_t* line, uint8_t* lineEnd)
             if (*line == '{' && *(line + 1) == '{')
             {
                 uint8_t prefix = *(line + 2);
-                if (!(prefix == '#' || prefix == '^' || prefix == '!' || prefix == '/'))
+                if (!(prefix == '#' || prefix == '^' || prefix == '!' || prefix == '/')
+                    && !(lineEnd - line+2) >=4 && strneql(line+2, "else",4))
                 {
                     return false;
                 }
@@ -1255,6 +1309,9 @@ static uint8_t* get_scoped_interior_end(uint8_t* interiorFirst, uint8_t* end)
 
 static bool is_truthy(mustache_param* p)
 {
+    if (p == NULL) {
+        return false;
+    }
     if (p->type == MUSTACHE_PARAM_STRING) {
         mustache_param_string* param = (mustache_param_string*)p;
         if (param->str.len > 0) {
@@ -1293,13 +1350,64 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
             uint8_t* end = get_mustache_close(first, inputEnd);
             structure* mstruct = NULL;
             // handle len case
-            if (strneql(first, "len(",4))
+            if (end - first == 4 && strneql(first, "else", 4)) {
+                int i = 0;
+                mstruct = parser->alloc(parser, sizeof(else_structure));
+                if (!mstruct) { return MUSTACHE_ERR_ALLOC; }
+                mstruct->type = STRUCTURE_TYPE_ELSE;
+
+                else_structure* asElse = (else_structure*)mstruct;
+                mstruct->param = NULL;
+                mstruct->pNext = NULL;
+                mstruct->pLast = last_struct;
+                mstruct->standalone = NULL;
+                asElse->parent = get_scoped_else_parent(mstruct, first, inputFirst);
+                if (!asElse->parent) {
+                    parser->free(parser, mstruct);
+                    return MUSTACHE_ERR_INVALID_TEMPLATE;
+                }
+                asElse->parent->close_or_else = mstruct;
+
+                mstruct->contentsFirst = first - inputFirst;
+                mstruct->contentsEnd = end - inputFirst;
+
+                // check if it's standalone
+                bool standlone = false;
+                uint8_t* lineEnd;
+                // check if the starting cond. line is standalone. If so, skip it.
+                uint8_t* lineBeg = get_line_begin(first, inputFirst);
+                lineEnd = get_line_end(first, inputEnd);
+                if (lineEnd) {
+                    standlone = is_line_standalone(lineBeg, lineEnd);
+                    if (standlone) {
+                        mstruct->standalone = parser->alloc(parser, sizeof(standalone_data));
+                        if (!mstruct->standalone) {
+                            parser->free(parser, mstruct);
+                            return MUSTACHE_ERR_ALLOC;
+                        }
+                        mstruct->standalone->lineBegin = lineBeg - inputFirst;
+                        mstruct->standalone->lineEnd = lineEnd - inputFirst;
+
+                        asElse->interiorBegin = lineEnd - inputFirst;
+                    }
+                    else {
+                        mstruct->standalone = NULL;
+                        asElse->interiorBegin = asElse->contentsEnd + strlen("}}");
+                    }
+                }
+                else {
+                    asElse->interiorBegin = asElse->contentsEnd + strlen("}}");;
+                }
+
+                inputHead = end + 2;
+            }
+            else if (end-first>=4 && strneql(first, "len(",4))
             { 
                 if (inputHead + 4 >= inputEnd) {
                     return MUSTACHE_ERR_INVALID_TEMPLATE;
                 }
                 uint8_t* interiorFirst = first + 4;
-                uint8_t* interiorEnd;
+                uint8_t* interiorEnd=NULL;
                 inputHead = interiorFirst;
                 // get closing ')'
                 while (inputHead < inputEnd)
@@ -1309,6 +1417,9 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
                         break;
                     }
                     inputHead++;
+                }
+                if (!interiorEnd) {
+                    return MUSTACHE_ERR_INVALID_TEMPLATE;
                 }
                 mstruct = parser->alloc(parser, sizeof(len_structure));
                 if (!mstruct) { return MUSTACHE_ERR_ALLOC; }
@@ -1346,6 +1457,11 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
                     close_structure* asClosed = (close_structure*)mstruct;
                     asClosed->pLast = last_struct;
                     asClosed->parent = get_scoped_close_parent(mstruct,first, inputFirst);
+                    if (!asClosed->parent) {
+                        parser->free(parser, mstruct);
+                        return MUSTACHE_ERR_INVALID_TEMPLATE;
+                    }
+                    asClosed->parent->close_or_else = (structure*)asClosed;
                 }
                 else {
                     mstruct = parser->alloc(parser, sizeof(structure));
@@ -1426,9 +1542,11 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
                 uint8_t* int_end = get_scoped_interior_end(end+2,inputEnd);
                 if (!int_end) {
                     asScoped->interiorEnd = 0;
+                    parser->free(parser, mstruct);
                     return MUSTACHE_ERR_INVALID_TEMPLATE;
                 }
                 asScoped->interiorEnd = int_end - inputFirst;
+                asScoped->close_or_else = NULL;
             }
             else {
                 mstruct = parser->alloc(parser, sizeof(var_structure));
@@ -1710,6 +1828,49 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
                 }
             }
         }
+        else if (mstruct->type == STRUCTURE_TYPE_ELSE)
+        {
+            else_structure* asElse = (else_structure*)mstruct;
+            const uint8_t* m_name_first = input + mstruct->contentsFirst + 1;
+            const uint8_t* m_name_end = input + mstruct->contentsEnd;
+
+            close_structure* close = asElse->close;
+
+            const uint8_t* interiorBegin = input + asElse->interiorBegin;
+            const uint8_t* interiorEnd = input + asElse->contentsEnd;
+
+
+            bool truthy = is_truthy(asElse->parent->param);
+
+            if (!((asElse->parent->type == STRUCTURE_TYPE_SCOPED_POUND && truthy) || (asElse->parent->type == STRUCTURE_TYPE_SCOPED_CARET && !truthy)))
+            {
+                if (mstruct->standalone) {
+                    const uint8_t* t = input + mstruct->standalone->lineBegin;
+                    outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
+                    lastNonEscaped = input + mstruct->standalone->lineEnd + strlen("\n");
+                }
+                else {
+                    const uint8_t* t = m_name_first - strlen("{{x");
+                    outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
+                    lastNonEscaped = m_name_end + strlen("{{");
+                }
+            }
+            else {
+                uint32_t nameLen = m_name_end - m_name_first;
+                const uint8_t* t;
+                if (mstruct->standalone) {
+                    t = input + mstruct->standalone->lineBegin;
+                }
+                else {
+                    t = m_name_first - strlen("{{x");
+                }
+                outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
+                lastNonEscaped = input + close->contentsEnd + strlen("}}");
+
+                mstruct = (structure*)asElse->close;
+                goto skip_node_no_advance;
+            }
+        }
         else if (mstruct->type == STRUCTURE_TYPE_SCOPED_CARET || mstruct->type == STRUCTURE_TYPE_SCOPED_POUND) {
             scoped_structure* asScoped = (scoped_structure*)mstruct;
         
@@ -1735,15 +1896,11 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
                 if (m_first_end != m_name_end) {
                     mstruct->param = resolve_param_member(mstruct->param, m_first_end, m_name_end);
                 }
-
-                if (!mstruct->param) {
-                    goto skip_node;
-                }
             }
 
             asScoped->curIdx = 0;
             
-            if (mstruct->type == STRUCTURE_TYPE_SCOPED_POUND && is_parent(mstruct->param)) 
+            if (mstruct->type == STRUCTURE_TYPE_SCOPED_POUND && mstruct->param && is_parent(mstruct->param))
             {
                 parent_stack_push(parentStack, asScoped);
 
@@ -1760,7 +1917,7 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
                     outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
                     lastNonEscaped = m_name_end + strlen("{{");
                 }
-            } 
+            }
             else if (mstruct->type == STRUCTURE_TYPE_SCOPED_POUND || mstruct->type==STRUCTURE_TYPE_SCOPED_CARET) 
             {
                 
@@ -1788,6 +1945,9 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
                     }
                     outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
                     lastNonEscaped = input + asScoped->interiorEnd+nameLen+strlen("{{x}}");
+
+                    mstruct = asScoped->close_or_else;
+                    goto skip_node_no_advance;
                 }
             }
         }
@@ -1810,7 +1970,7 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
 
                 scoped_structure* parent = asClose->parent;
 
-                if (parent->param) {
+                if (parent->type!=STRUCTURE_TYPE_ELSE && parent->param) {
                     if (parent->param->type == MUSTACHE_PARAM_LIST)
                     {
                         mustache_param_list* param = (mustache_param_list*)parent->param;
@@ -1838,6 +1998,8 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
 
     skip_node:
         mstruct = mstruct->pNext;
+    skip_node_no_advance:
+        mstruct = mstruct;
     }
 
 
@@ -1853,6 +2015,10 @@ void mustache_structure_chain_free(mustache_parser* p, mustache_structure* struc
     while (root)
     {
         structure* next = root->pNext;
+        if (next->standalone) {
+            p->free(p,next->standalone);
+        }
+
         p->free(p,root);
         root = next;
     }

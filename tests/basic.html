@@ -1,4 +1,13 @@
 <!DOCTYPE html>
+{{#users[2]}}
+   The 3rd user exists.
+   User 1: {{users[0].data.name}}
+{{else}}
+   The 3rd user does not exist.
+   User 1: {{users[0].data.name}}
+{{/}}
+
+
 {{!A simple test of the C mustache templating engine}}
 <html lang="en">
 <head>
@@ -17,12 +26,15 @@
     <p>You are logged in and have {{messages}} new messages.</p>
     {{/}} this line is not standalone.
     {{^loggedIn}}
-    <p>Please <a href="/login">log in</a> to continue.</p>
+    <p>Please <a href="/login">log in to {{site}} </a> to continue.</p>
     {{/}}
     ------------------------------------
     user count: {{len(users)}}
 
-    <p>users[0]: {{users[0].data.name}}</p>
+    {{#users[2]}}
+    <p>users[2]: {{users[2].data.name}}</p>
+    The 3rd user does not exist.
+    {{/}}
 
     {{#users}}
     <p>{{.data.name}} is online.</p>
