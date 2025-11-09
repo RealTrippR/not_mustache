@@ -100,7 +100,7 @@ it should act as a for-each rather than an if condition, with
 
 
 The `{{else}}` block is a special block which is executed when the preceding expression evaluates as falsy. 
-It provides an alternative brack to the main {{#var}} or {{^var}} block that does not execute.
+It provides an alternative branch to the main {{#var}} or {{^var}} block that does not execute.
 
 
 <hr>
