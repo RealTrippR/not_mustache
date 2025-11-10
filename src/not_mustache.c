@@ -140,6 +140,10 @@ typedef struct {
     mustache_param* curChild;
 
     structure* close_or_else;
+
+    bool wasEvaluated;
+    bool renderedLastEvaluation;
+
 } scoped_structure;
 
 typedef struct {
@@ -1498,7 +1502,8 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
                       
                         mstruct->standalone = parser->alloc(parser,sizeof(standalone_data));
                         if (!mstruct->standalone) {
-                            return MUSTACHE_ERR_ALLOC;}
+                            return MUSTACHE_ERR_ALLOC;
+                        }
                         mstruct->standalone->lineBegin = lineBeg - inputFirst;
                         mstruct->standalone->lineEnd = lineEnd - inputFirst;
                     }
@@ -1513,10 +1518,12 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
             else if (*first == '^' || *first == '#')
             {
                 mstruct = parser->alloc(parser, sizeof(scoped_structure));
+                if (!mstruct) {
+                    return MUSTACHE_ERR_ALLOC;
+                }
+
                 mstruct->param = NULL;
                 mstruct->pNext = NULL;
-                if (!mstruct) {
-                    return MUSTACHE_ERR_ALLOC; }
 
                 if (*first == '^') {
                     mstruct->type = STRUCTURE_TYPE_SCOPED_CARET;
@@ -1560,6 +1567,7 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
                 }
                 asScoped->interiorEnd = int_end - inputFirst;
                 asScoped->close_or_else = NULL;
+                asScoped->wasEvaluated = false;
             }
             else {
                 mstruct = parser->alloc(parser, sizeof(var_structure));
@@ -1851,9 +1859,9 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
             const uint8_t* interiorEnd = input + asElse->contentsEnd;
 
 
-            bool truthy = is_truthy(asElse->parent->param);
+            scoped_structure* parentAsScoped = (scoped_structure*)asElse->parent;
 
-            if (!((asElse->parent->type == STRUCTURE_TYPE_SCOPED_POUND && truthy) || (asElse->parent->type == STRUCTURE_TYPE_SCOPED_CARET && !truthy)))
+            if (!parentAsScoped->renderedLastEvaluation)
             {
                 if (mstruct->standalone) {
                     const uint8_t* t = input + mstruct->standalone->lineBegin;
@@ -1932,8 +1940,14 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
             else if (mstruct->type == STRUCTURE_TYPE_SCOPED_POUND || mstruct->type==STRUCTURE_TYPE_SCOPED_CARET) 
             {
                 
-                bool truthy = is_truthy(mstruct->param);
-                if ((mstruct->type == STRUCTURE_TYPE_SCOPED_POUND && truthy) || (mstruct->type == STRUCTURE_TYPE_SCOPED_CARET && !truthy))
+                scoped_structure* asScoped = (scoped_structure*)mstruct;
+               
+                if (!asScoped->wasEvaluated) {
+                    bool truthy = is_truthy(mstruct->param);
+                    asScoped->renderedLastEvaluation = (mstruct->type == STRUCTURE_TYPE_SCOPED_POUND && truthy) || (mstruct->type == STRUCTURE_TYPE_SCOPED_CARET && !truthy);
+                    asScoped->wasEvaluated = true;
+                }
+                if (asScoped->renderedLastEvaluation)
                 {
                     if (mstruct->standalone) {
                         const uint8_t* t = input + mstruct->standalone->lineBegin;
@@ -2041,6 +2055,11 @@ void mustache_structure_chain_flush(mustache_structure* structure_chain)
     root = root->pNext;
     while (root)
     {
+        if (root->type == STRUCTURE_TYPE_SCOPED_CARET || root->type == STRUCTURE_TYPE_SCOPED_POUND)
+        {
+            scoped_structure* asScoped = (scoped_structure*)root;
+            asScoped->wasEvaluated = false;
+        }
         root->param = NULL;
         root = root->pNext;
     }
