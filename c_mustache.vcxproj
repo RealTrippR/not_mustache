@@ -147,7 +147,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <Text Include="tests\txt.txt" />
+    <Text Include="tests\example.txt" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\deps\streql\streqlasm.h" />

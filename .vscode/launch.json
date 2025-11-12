@@ -2,12 +2,32 @@
     "version": "2.0.0",
     "configurations": [
         {
-            "preLaunchTask": "build", // forces tasks.json build group to run
+            "preLaunchTask": "build_c", // forces tasks.json build group to run
             "name": "BASE_TEST",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/tests/base_test.exe",
-            "args": [""],
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/tests",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "preLaunchTask": "build_odin", // forces tasks.json build group to run
+            "name": "ODIN_TEST",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/tests/test.exe",
+            "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/tests",
             "environment": [],

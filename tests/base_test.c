@@ -195,9 +195,9 @@ int main()
 
 
 
-    mustache_structure_chain_flush(&struct_chain); // <- this must be called before any
+    // mustache_structure_chain_flush(&struct_chain); // <- this must be called before any
     // calls to mustache_parse_file or mustache_parse_stream if the parameters for this
-    // structure chain have changed since the last usage of the structure chain.
+    // structure chain have been invalidated or changed addresses.
 
     // mustache_structure_chain_free() <- if malloc was used for every node in the structure
     // chain rather than a unified stack buffer is in the example here, this function would

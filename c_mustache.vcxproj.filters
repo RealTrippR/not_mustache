@@ -59,7 +59,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <Text Include="tests\txt.txt">
+    <Text Include="tests\example.txt">
       <Filter>tests</Filter>
     </Text>
   </ItemGroup>

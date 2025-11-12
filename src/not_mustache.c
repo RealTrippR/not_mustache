@@ -40,6 +40,14 @@ SOFTWARE.
 #define min(X, Y) ((X) < (Y) ? (X) : (Y))
 #define array_count(A) (sizeof(A)/sizeof(A[0]))
 
+typedef enum {
+    MUSTACHE_TYPE_VARIABLE,
+    MUSTACHE_TYPE_FALSY,
+    MUSTACHE_TYPE_POUND,
+    MUSTACHE_TYPE_CLOSE,
+    MUSTACHE_TYPE_COMMENT
+} MUSTACHE_TYPE;
+
 typedef struct {
     mustache_slice buf;
     uint32_t count;
@@ -291,7 +299,7 @@ static uint32_t u32_round_to_next_power_of_2(uint32_t v) {
     return v;
 }
 
-// returns the digits in an i64 from a lookup table
+// returns the digits in an i64 from a branched lookup table
 static uint8_t digits_i64(int64_t n) {
     if (n<0) {n = n * -1;}
     if (n < 10) return 1;
@@ -315,7 +323,7 @@ static uint8_t digits_i64(int64_t n) {
     return 0;
 }
 
-// returns the digits in a u32 from a lookup table
+// returns the digits in a u32 from a branched lookup table
 static uint8_t digits_u32(uint32_t n) {
     if (n < 10) return 1;
     if (n < 100) return 2;
@@ -338,7 +346,7 @@ static uint8_t digits_u32(uint32_t n) {
     return 0;
 }
 
-// returns pow(10,n) from a lookup table;
+// returns pow(10,n) from a direct lookup table;
 static double n_pow10(uint16_t n) {
     static const double pow10_table[] = {
         1.0,
@@ -979,29 +987,6 @@ static uint8_t* get_truthy_close(mustache_const_slice paramName, uint8_t* cur, u
     }
     return NULL;
 }
-
-uint8_t stream_cache_add_var(mustache_template_cache* streamCache, mustache_slice srcBuffer, uint8_t* varBegin, uint8_t* varLast, uint8_t* truthyClose)
-{
-    uint32_t offsetBegin = varBegin - srcBuffer.u;
-    uint32_t offsetEnd = varLast - srcBuffer.u;
-
-    if (streamCache->varCount==streamCache->privMAX_VAR_COUNT) {
-        return MUSTACHE_ERR_NO_SPACE;
-    }
-    else {
-        mustache_var_info* vars = (mustache_var_info*)(streamCache->varBuffer.u);
-        uint32_t truthyLen;
-        if (truthyClose) {
-            truthyLen = truthyClose - (varLast);
-        }
-        else {
-            truthyLen = 0;
-        }
-        vars[streamCache->varCount] = (mustache_var_info){ offsetBegin, offsetEnd, truthyLen};
-        streamCache->varCount++;
-        return MUSTACHE_SUCCESS;
-    }
-};
 
 static uint8_t* get_line_end(uint8_t* line, uint8_t* searchEnd)
 {
@@ -2058,7 +2043,6 @@ void mustache_structure_chain_flush(mustache_structure* structure_chain)
         if (root->type == STRUCTURE_TYPE_SCOPED_CARET || root->type == STRUCTURE_TYPE_SCOPED_POUND)
         {
             scoped_structure* asScoped = (scoped_structure*)root;
-            asScoped->wasEvaluated = false;
         }
         root->param = NULL;
         root = root->pNext;
@@ -2136,6 +2120,21 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, 
         err = source_to_structured(parser, structureRoot, inputBuffer.u, inputHead, inputEnd);
         if (err) {
             return err;
+        }
+    }
+    else {
+
+        // RESET EVAL STATE
+        structure* root = (structure*)structureRoot;
+        root = root->pNext;
+        while (root)
+        {
+            if (root->type == STRUCTURE_TYPE_SCOPED_CARET || root->type == STRUCTURE_TYPE_SCOPED_POUND)
+            {
+                scoped_structure* asScoped = (scoped_structure*)root;
+                asScoped->wasEvaluated = false;
+            }
+            root = root->pNext;
         }
     }
 

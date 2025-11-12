@@ -24,167 +24,126 @@ SOFTWARE.
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 */
 
-#ifndef MUSTACHE_H
-#define MUSTACHE_H
+package not_mustache
 
-#include <stdint.h>
-#include <stdbool.h>
+import "core:odin/parser"
+import "core:slice"
 
 /* ====== ENUM TYPES ====== */
 
-typedef enum {
-    MUSTACHE_SUCCESS=0,
-    MUSTACHE_ERR,
-    MUSTACHE_ERR_ALLOC,
-    MUSTACHE_ERR_FILE_OPEN,
-    MUSTACHE_ERR_NONEXISTENT,
-    MUSTACHE_ERR_NO_SPACE,
-    MUSTACHE_ERR_OVERFLOW,
-    MUSTACHE_ERR_UNDERFLOW,
-    MUSTACHE_ERR_INCOMPLETE,
-    MUSTACHE_ERR_STREAM,
-    MUSTACHE_ERR_ARGS,
-    MUSTACHE_ERR_INVALID_TEMPLATE,
-    MUSTACHE_ERR_INVALID_JSON
-} MUSTACHE_RES;
+Err :: enum u8 {
+    Success=0,
+    Err,
+    ErrAlloc,
+    ErrFileOpen,
+    ErrNonExistent,
+    ErrNoSpace,
+    ErrOverflow,
+    ErrUnderflow,
+    ErrIncomplete,
+    ErrStream,
+    ErrArgs,
+    ErrTemplate,
+    ErrJson
+}
 
-typedef enum {
-    MUSTACHE_SEEK_SET = 0,
-    MUSTACHE_SEEK_CUR = 1,
-    MUSTACHE_SEEK_END = 2,
-    MUSTACHE_SEEK_LEN = 3
-} MUSTACHE_SEEK_DIR;
-
-
-
-typedef enum {
-    MUSTACHE_PARAM_NONE,
-    MUSTACHE_PARAM_BOOLEAN,
-    MUSTACHE_PARAM_NUMBER,
-    MUSTACHE_PARAM_STRING,
-    MUSTACHE_PARAM_LIST,
-    MUSTACHE_PARAM_OBJECT
-} MUSTACHE_PARAM_TYPE;
-
-/* ===== STRUCTURE FORWARD DECLARATIONS */
-
-typedef struct mustache_slice mustache_slice;
-
-typedef struct mustache_const_slice mustache_const_slice;
-
-typedef struct mustache_parser mustache_parser;
-
-typedef struct mustache_param mustache_param;
-
-typedef struct mustache_stream mustache_stream;
-
-typedef struct mustache_structure mustache_structure;
+SeekDir :: enum {
+    Set = 0,
+    Cur = 1,
+    End = 2,
+    Len = 3
+}
 
 /* ====== FUNCTION CALLBACK TYPES ====== */
 
-typedef uint64_t (*mustache_seek_callback)(void* udata, int64_t whence, MUSTACHE_SEEK_DIR seekdir);
+Alloc :: proc(parser: ^Parser, size: int) -> (rawptr);
 
-typedef size_t (*mustache_read_callback)(void* udata, uint8_t* dst, size_t dstlen);
+Free :: proc(parser: ^Parser, size: int);
 
-typedef void* (*mustache_alloc)(mustache_parser* parser, size_t bytes);
+ParseCallback :: proc(parser: ^Parser, udata: rawptr, parsed: []u8);
 
-typedef void (*mustache_free)(mustache_parser* parser, void* block);
+SeekCallback :: proc(udata: rawptr, whence: i64, seekdir: SeekDir) -> (u64)
+
+ReadCallback :: proc(udata: rawptr, dst: ^u8, dstlen: u64) -> (u64)
 
 
 /* ====== STRUCTURE TYPES ====== */
 
-typedef struct mustache_slice
-{
-    uint8_t* u;
-    uint64_t len;
-} mustache_slice;
+Parser :: struct {
+    userData: rawptr,
+    parentStackBuffer: []u8,
+    alloc: Alloc,
+    free: Free
+}
 
-typedef struct mustache_const_slice
-{
-    const uint8_t* u;
-    uint64_t len;
-} mustache_const_slice;
+ParamType :: enum {
+    None,
+    Boolean,
+    Number,
+    String,
+    List,
+    Object
+}
 
+Param :: struct {
+    pNext: ^Param,
+    type: ParamType,
+    name: string
+}
 
-typedef struct mustache_parser
-{
-    void* userData;
-    mustache_slice parentStackBuf;
-    mustache_alloc alloc;
-    mustache_free  free;
-} mustache_parser;
+ParamString :: struct {
+    using param: Param,
+    str: string
+}
 
+ParamNumber :: struct {
+    using param: Param,
+    value: f64,
+    decimals: u8,
+    trimZeros: bool
+}
 
+ParamBoolean :: struct {
+    using param: Param,
+    value: bool
+}
 
-typedef struct mustache_param {
-    void* pNext;
-    MUSTACHE_PARAM_TYPE type;
-    mustache_const_slice name;
-} mustache_param;
+ParamList :: struct {
+    using param: Param,
+    pValues: ^Param,
+    valueCount: u32
+}
 
-typedef struct {
-    void* pNext;
-    MUSTACHE_PARAM_TYPE type;
-    mustache_const_slice name;
-    mustache_slice str;
-} mustache_param_string;
-
-typedef struct {
-    void* pNext;
-    MUSTACHE_PARAM_TYPE type;
-    mustache_const_slice name;
-    double value;
-    uint8_t decimals;
-    bool trimZeros;
-} mustache_param_number;
-
-typedef struct {
-    void* pNext;
-    MUSTACHE_PARAM_TYPE type;
-    mustache_const_slice name;
-    void* pValues;
-    uint32_t valueCount;
-} mustache_param_list;
-
-typedef struct {
-    void* pNext;
-    MUSTACHE_PARAM_TYPE type;
-    mustache_const_slice name;
-    bool value;
-} mustache_param_boolean;
-
-typedef struct {
-    void* pNext;
-    MUSTACHE_PARAM_TYPE type;
-    mustache_const_slice name;
-    void* pMembers;
-} mustache_param_object;
-
-typedef struct mustache_stream
-{
-    void* udata;
-    mustache_read_callback readCallback;
-    mustache_seek_callback seekCallback;
-} mustache_stream;
-
-typedef struct mustache_structure 
-{
-    void*           __A;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
-    void*           __B;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
-    MUSTACHE_RES    __C;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
-    uint32_t        __D;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
-    uint32_t        __E;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
-    uint32_t        __F;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
-    void*           __G;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
-    void*           __H;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
-} mustache_structure;
-
-/* ====== FUNCTION CALLBACK TYPES ====== */
-
-typedef void (*mustache_parse_callback)(mustache_parser* parser, void* udata, mustache_slice parsed);
+ParamObject ::struct {
+    using param: Param,
+    pMembers: ^Param
+};
 
 
-/* ====== FUNCTIONS ====== */
+Stream :: struct {
+    udata: rawptr,
+    readCallback: ReadCallback,
+    seekCallback: SeekCallback
+};
+
+Structure :: struct {
+    __A: rawptr,        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
+    __B: rawptr,        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
+    __C: Err,           // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
+    __D: u32,           // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
+    __E: u32,            // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
+    __F: u32,           // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
+    __G: rawptr,        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
+    __H: rawptr,        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
+}
+
+
+
+foreign import not_mustache "not_mustache_bin:not_mustache.o"
+
+foreign not_mustache {
+
+
 
 /*****
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
@@ -204,7 +163,10 @@ typedef void (*mustache_parse_callback)(mustache_parser* parser, void* udata, mu
 
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 *****/
-uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filename, mustache_structure* structChain, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* parseCallbackUdata, mustache_parse_callback parseCallback);
+
+@(link_name="mustache_parse_file")
+parseFile :: proc (parser: ^Parser,  filename: []u8, structChain: ^Structure,  params: ^Param,
+    sourceBuffer: []u8,  parseBuffer: []u8,  parseCallbackUdata: rawptr, parseCallback: ParseCallback) -> Err ---
 
 /*****
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
@@ -224,8 +186,10 @@ uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filena
       
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 *****/
-uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, mustache_structure* structChain, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* parseCallbackUdata, mustache_parse_callback parseCallback);
 
+@(link_name="mustache_parse_stream")
+parseStream :: proc (parser: ^Parser,  stream: ^Stream, structChain: ^Structure,  params: ^Param,
+    sourceBuffer: []u8,  parseBuffer: []u8,  parseCallbackUdata: rawptr, parseCallback: ParseCallback) -> Err ---
 
 /*****
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
@@ -237,22 +201,24 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, 
 
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 *****/
-void mustache_structure_chain_free(mustache_parser* parser, mustache_structure* structure_chain);
 
+@(link_name="mustache_structure_chain_free")
+structureChainFree :: proc (parser: ^Parser, structChain: ^Structure) ---
 
 /*****
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 
 -+- Primes a structure chain for its next use, this must be called if the parameter -+-
-    chain used to generate this structure chain has nodes that were invalidated
-    or changed addresses since the last call to mustache_parse_file or 
-    mustache_parse_stream.
+    used to generate this structure chain have been modified since the its last 
+-+- usage.                                                                          -+-
 
 @param mustache_structure* structure_chain
 
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 *****/
-void mustache_structure_chain_flush(mustache_structure* structure_chain);
+
+@(link_name="mustache_structure_chain_flush")
+structureChainFlush :: proc (structChain: ^Structure) ---
 
 /*****
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
@@ -266,8 +232,9 @@ void mustache_structure_chain_flush(mustache_structure* structure_chain);
 
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 *****/
-uint8_t mustache_JSON_to_param_chain_from_disk(mustache_parser* parser, mustache_const_slice filename, mustache_param** paramRoot);
 
+@(link_name="mustache_JSON_to_param_chain_from_disk")
+JSON_toParamChainFromDisk :: proc(parser: ^Parser, filename: []u8, paramRoot: ^^Param) -> Err ---
 
 /*****
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
@@ -283,9 +250,9 @@ uint8_t mustache_JSON_to_param_chain_from_disk(mustache_parser* parser, mustache
 
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 *****/
-uint8_t mustache_JSON_to_param_chain(mustache_parser* parser, mustache_const_slice JSON, mustache_param** paramRoot, bool deepCopyData);
 
-
+@(link_name="mustache_JSON_to_param_chain")
+JSON_toParamChain :: proc(parser: ^Parser, JSON: []u8, paramRoot: ^^Param, deepCopyData: bool) -> Err ---
 
 /*****
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
@@ -301,7 +268,9 @@ uint8_t mustache_JSON_to_param_chain(mustache_parser* parser, mustache_const_sli
 
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 */
-uint8_t mustache_free_param_list(mustache_parser* parser, mustache_param* paramRoot, bool deepCopy);
+
+@(link_name="mustache_free_param_list")
+mustache_free_param_list :: proc(parser: ^Parser, paramRoot: ^Param, deepCopy: bool) -> Err ---
 
 /*
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
@@ -311,12 +280,5 @@ uint8_t mustache_free_param_list(mustache_parser* parser, mustache_param* paramR
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 */
 
-#ifdef MUSTACHE_SYSTEM_TESTS
 
-void mustache_print_node(mustache_param* node, int depth);
-
-void mustache_print_parameter_list(mustache_param* root);
-
-#endif // MUSTACHE_SYSTEM_TESTS
-
-#endif
+}
