@@ -61,7 +61,7 @@ Note that all variable names are <b>case-sensitive</b>.
 
 </div>
 <div>
-If a block is preceded by the opening string of chars, {{&, it's evaluated contents will not be HTML escaped.
+If a block is preceded by the opening string `{{&` it's evaluated contents will not be HTML escaped.
 
 `{{&escaped_expression}}`
 
