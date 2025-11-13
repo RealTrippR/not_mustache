@@ -36,7 +36,7 @@
 [1.3 ... Truthy / Falsy Expressions](#truthy_falsy)  
 [1.4 ................. Standalone Lines](#standalones)  
 [1.5 ....................... List Functions](#list_functions)  
-[1.5 ....................... Variable Types](#variable_types)  
+[1.6 ....................... Variable Types](#variable_types)  
 
 
 <hr>
@@ -123,7 +123,7 @@ index is a constant integer. If the idx is negative, the index should evaluate t
 
 <hr>
 
-##### 1.5 Variable Types <a id="variable_types"></a>
+##### 1.6 Variable Types <a id="variable_types"></a>
 
 `Boolean:` a type that can either be true or false. Evaluates to `true` or `false`
 `Number:` a type that holds a 64-bit floating point value.
