@@ -1,4 +1,4 @@
-### NOT_MUSTACHE
+# NOT_MUSTACHE
 
 Not-mustache is a near-identical derivative of the mustache templating templating language, the primary differences being additional list functions and the parsing of standalone lines.
 
