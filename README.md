@@ -2,6 +2,8 @@
 
 Not-mustache is a near-identical derivative of the mustache templating templating language, the primary differences being additional list functions and the parsing of standalone lines.
 
+Refer to `SPEC.md` for information on the language.
+
 ### Examples
 
 Just like with mustache, all blocks are defined with an opening `{{` and a closing `}}`, which an expression in between.
