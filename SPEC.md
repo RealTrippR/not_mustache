@@ -36,6 +36,7 @@
 [1.3 ... Truthy / Falsy Expressions](#truthy_falsy)  
 [1.4 ................. Standalone Lines](#standalones)  
 [1.5 ....................... List Functions](#list_functions)  
+[1.5 ....................... Variable Types](#variable_types)  
 
 
 <hr>
@@ -119,3 +120,13 @@ The not-mustache 1.0 spec provides two list functions:
 
 The `len(arr)` evaluates to the number of variables within that list, and `arr[idx]` evaluates to the member of the list at a given index, where
 index is a constant integer. If the idx is negative, the index should evaluate to `arr[len(arr)-|idx|]`.
+
+<hr>
+
+##### 1.5 Variable Types <a id="variable_types"></a>
+
+`Boolean:` a type that can either be true or false. Evaluates to `true` or `false`
+`Number:` a type that holds a 64-bit floating point value.
+`String:` an array of bytes with a fixed length.
+`List:` an array of variables that can only be accessed by index notation `[i]`, not my name or structure.
+`Object:` a type that holds a list of variables that can be accessed by name with dot notation `.name` or index notation `[i]`.
