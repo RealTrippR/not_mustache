@@ -16,7 +16,6 @@
                 "kind": "build",
                 "isDefault": true
             },
-            "detail": "Build the project using the Makefile"
         },
         {
             "label": "build_odin",
@@ -33,7 +32,6 @@
                 "kind": "build",
                 "isDefault": true
             },
-            "detail": "Build the project using the Makefile"
         },
         {
             "label": "clean",
@@ -48,7 +46,6 @@
                 "kind": "build",
                 "isDefault": false
             },
-            "detail": "Clean the project using the Makefile"
         }
     ]
 }

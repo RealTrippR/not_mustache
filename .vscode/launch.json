@@ -6,7 +6,7 @@
             "name": "BASE_TEST",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/tests/base_test.exe",
+            "program": "${workspaceFolder}/tests/build/base_test.exe",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/tests",
@@ -22,24 +22,13 @@
             ]
         },
         {
-            "preLaunchTask": "build_odin", // forces tasks.json build group to run
-            "name": "ODIN_TEST",
-            "type": "cppdbg",
+            "type": "cppvsdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/tests/test.exe",
+            "preLaunchTask": "build_odin",
+            "name": "ODIN_TEST",
+            "program": "${workspaceFolder}/tests/build/test.exe",
             "args": [],
-            "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/tests",
-            "environment": [],
-            "externalConsole": false,
-            "MIMode": "gdb",
-            "setupCommands": [
-                {
-                    "description": "Enable pretty-printing for gdb",
-                    "text": "-enable-pretty-printing",
-                    "ignoreFailures": true
-                }
-            ]
+            "cwd": "${workspaceFolder}/tests"
         }
     ]
 }

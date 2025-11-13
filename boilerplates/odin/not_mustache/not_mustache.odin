@@ -27,7 +27,11 @@ SOFTWARE.
 package not_mustache
 
 import "core:odin/parser"
+import "core:c"
+import "core:math"
 import "core:slice"
+
+foreign import libm "libm.lib"
 
 /* ====== ENUM TYPES ====== */
 
@@ -56,15 +60,15 @@ SeekDir :: enum {
 
 /* ====== FUNCTION CALLBACK TYPES ====== */
 
-Alloc :: proc(parser: ^Parser, size: int) -> (rawptr);
+Alloc :: proc "c" (parser: ^Parser, size: int) -> (rawptr);
 
-Free :: proc(parser: ^Parser, size: int);
+Free :: proc "c" (parser: ^Parser, block: rawptr);
 
-ParseCallback :: proc(parser: ^Parser, udata: rawptr, parsed: []u8);
+ParseCallback :: proc "c" (parser: ^Parser, udata: rawptr, parsed: []u8);
 
-SeekCallback :: proc(udata: rawptr, whence: i64, seekdir: SeekDir) -> (u64)
+SeekCallback :: proc "c" (udata: rawptr, whence: i64, seekdir: SeekDir) -> (u64)
 
-ReadCallback :: proc(udata: rawptr, dst: ^u8, dstlen: u64) -> (u64)
+ReadCallback :: proc "c" (udata: rawptr, dst: ^u8, dstlen: u64) -> (u64)
 
 
 /* ====== STRUCTURE TYPES ====== */
@@ -138,7 +142,6 @@ Structure :: struct {
 }
 
 
-
 foreign import not_mustache "not_mustache_bin:not_mustache.o"
 
 foreign not_mustache {
@@ -165,7 +168,7 @@ foreign not_mustache {
 *****/
 
 @(link_name="mustache_parse_file")
-parseFile :: proc (parser: ^Parser,  filename: []u8, structChain: ^Structure,  params: ^Param,
+parseFile :: proc (parser: ^Parser,  filename: string , structChain: ^Structure,  params: ^Param,
     sourceBuffer: []u8,  parseBuffer: []u8,  parseCallbackUdata: rawptr, parseCallback: ParseCallback) -> Err ---
 
 /*****

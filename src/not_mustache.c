@@ -185,6 +185,14 @@ typedef struct {
     close_structure* close;
 } else_structure;
 
+#if defined(NOT_MUSTACHE_TARGET_MSVC)
+void __chkstk(void);
+static void ___chkstk_ms(void) {
+    __chkstk();
+}
+#endif
+
+
 
 int32_t strtoi32(const char* str, uint8_t bufflen, int32_t* strLenOut)
 {
@@ -237,6 +245,10 @@ int32_t strtoi32(const char* str, uint8_t bufflen, int32_t* strLenOut)
     if (negative)
         num *= -1;
     return num;
+}
+
+static inline int nm_isinf(double x) {
+    return x == 1.0 / 0.0 || x == -1.0 / 0.0;
 }
 
 static void parent_stack_pop(parent_stack* stack)
@@ -694,10 +706,10 @@ static int16_t i64toa(int64_t n,uint8_t* buf, size_t size)
 
 // returns the expected write length of a dtoa call
 static uint16_t dtoalen(double value, uint16_t precision, bool trimZeros) {
-    if (isnan(value)) {
+    if (_isnan(value)) {
         return 3;
     }
-    if (isinf(value)) {
+    if (nm_isinf(value)) {
         if (value < 0) {
             return 4;
         }
@@ -779,11 +791,11 @@ static uint8_t* u32toa(uint32_t value, uint8_t* buf, size_t bufsize)
 static uint8_t* dtoa(double value, uint8_t* buf, size_t size, uint16_t precision, bool trimZeros) {
     if (size == 0) return buf;
 
-    if (isnan(value)) {
+    if (_isnan(value)) {
         memcpy(buf, "nan", min(size, 3));
         return buf + min(size, 3);
     }
-    if (isinf(value)) {
+    if (nm_isinf(value)) {
         if (value < 0) {
             memcpy(buf, "-inf", min(size, 4));
             return buf + min(size, 4);

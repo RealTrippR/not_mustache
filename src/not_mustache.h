@@ -24,6 +24,17 @@ SOFTWARE.
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 */
 
+
+/*
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+
+PREPROCESSOR FLAGS:
+- NOT_MUSTACHE_TARGET_MSVC <- define if targeting the MSVC or Odin compiler.
+
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+*/
+
+
 #ifndef MUSTACHE_H
 #define MUSTACHE_H
 

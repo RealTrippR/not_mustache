@@ -56,6 +56,8 @@ Not-mustache is a near-identical derivative of the mustache templating templatin
 
 By default, it's evaluated contents will be HTML escaped.
 
+Note that all variable names are <b>case-sensitive</b>.
+
 </div>
 <div>
 If a block is preceded by the opening string of chars, {{&, it's evaluated contents will not be HTML escaped.
