@@ -61,9 +61,9 @@ Note that all variable names are <b>case-sensitive</b>.
 
 </div>
 <div>
-If a block is preceded by the opening string of chars, {{&, it's evaluated contents will not be HTML escaped.
+If a block is preceded by the opening string `{{&` it's evaluated contents will not be HTML escaped.
 
-`{{&escaped_expression}}`
+`{{&non_escaped_expression}}`
 
 </div>
 
@@ -125,8 +125,8 @@ index is a constant integer. If the idx is negative, the index should evaluate t
 
 ##### 1.6 Variable Types <a id="variable_types"></a>
 
-`Boolean:` a type that can either be true or false. Evaluates to `true` or `false`
-`Number:` a type that holds a 64-bit floating point value.
-`String:` an array of bytes with a fixed length.
-`List:` an array of variables that can only be accessed by index notation `[i]`, not my name or structure.
-`Object:` a type that holds a list of variables that can be accessed by name with dot notation `.name` or index notation `[i]`.
+`Boolean:` a type that can either be true or false. Evaluates to `true` or `false` <br>
+`Number:` a type that holds a 64-bit floating point value. <br>
+`String:` an array of bytes with a fixed length. <br>
+`List:` an array of variables that can only be accessed by index notation `[i]`, not my name or structure. <br>
+`Object:` a type that holds a list of variables that can be accessed by name with dot notation `.name` or index notation `[i]`. <br>

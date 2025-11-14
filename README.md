@@ -1,7 +1,8 @@
 # NOT_MUSTACHE
 
-Not-mustache is a near-identical derivative of the mustache templating templating language, the primary differences being additional list functions and the parsing of standalone lines.
+Not-mustache is a near-identical derivative of the mustache templating language, and is backwards compatible with most mustache templates. The specification adds array indexing and length functions, has a shortened syntax, and handles standalone lines differently.
 
+### Specification
 Refer to `SPEC.md` for information on the language.
 
 ### Examples
