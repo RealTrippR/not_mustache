@@ -80,7 +80,8 @@ typedef enum {
     MUSTACHE_PARAM_NUMBER,
     MUSTACHE_PARAM_STRING,
     MUSTACHE_PARAM_LIST,
-    MUSTACHE_PARAM_OBJECT
+    MUSTACHE_PARAM_OBJECT,
+    MUSTACHE_PARAM_TEMPLATE
 } MUSTACHE_PARAM_TYPE;
 
 /* ===== STRUCTURE FORWARD DECLARATIONS */
@@ -126,9 +127,10 @@ typedef struct mustache_const_slice
 typedef struct mustache_parser
 {
     void* userData;
-    mustache_slice parentStackBuf;
     mustache_alloc alloc;
     mustache_free  free;
+    
+    uint8_t spacesPerTab;
 } mustache_parser;
 
 
@@ -177,6 +179,21 @@ typedef struct {
     void* pMembers;
 } mustache_param_object;
 
+typedef struct {
+    void* pNext;
+    MUSTACHE_PARAM_TYPE type;
+    mustache_const_slice name;
+
+    void* parameters;
+    mustache_structure* structure;
+    mustache_const_slice source;
+    
+    mustache_slice parentStackBuffer;
+} mustache_param_template;
+
+
+
+
 typedef struct mustache_stream
 {
     void* udata;
@@ -186,14 +203,14 @@ typedef struct mustache_stream
 
 typedef struct mustache_structure 
 {
-    void*           __A;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
-    void*           __B;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
-    MUSTACHE_RES    __C;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
-    uint32_t        __D;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
-    uint32_t        __E;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
-    uint32_t        __F;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
-    void*           __G;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
-    void*           __H;        // DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER
+    void*           __A;        /* DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER */
+    void*           __B;        /* DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER */
+    MUSTACHE_RES    __C;        /* DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER */
+    uint32_t        __D;        /* DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER */
+    uint32_t        __E;        /* DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER */
+    uint32_t        __F;        /* DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER */
+    void*           __G;        /* DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER */
+    void*           __H;        /* DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER */
 } mustache_structure;
 
 /* ====== FUNCTION CALLBACK TYPES ====== */
@@ -221,7 +238,7 @@ typedef void (*mustache_parse_callback)(mustache_parser* parser, void* udata, mu
 
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 *****/
-uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filename, mustache_structure* structChain, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* parseCallbackUdata, mustache_parse_callback parseCallback);
+uint8_t mustache_parse_file(mustache_parser* parser, mustache_slice parentStackBuffer,  mustache_const_slice filename, mustache_structure* structChain, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* parseCallbackUdata, mustache_parse_callback parseCallback);
 
 /*****
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
@@ -241,7 +258,7 @@ uint8_t mustache_parse_file(mustache_parser* parser, mustache_const_slice filena
       
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 *****/
-uint8_t mustache_parse_stream(mustache_parser* parser, mustache_stream* stream, mustache_structure* structChain, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* parseCallbackUdata, mustache_parse_callback parseCallback);
+uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStackBuffer, mustache_stream* stream, mustache_structure* structChain, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* parseCallbackUdata, mustache_parse_callback parseCallback);
 
 
 /*****
@@ -334,6 +351,6 @@ void mustache_print_node(mustache_param* node, int depth);
 
 void mustache_print_parameter_list(mustache_param* root);
 
-#endif // MUSTACHE_SYSTEM_TESTS
+#endif
 
 #endif

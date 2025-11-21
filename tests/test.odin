@@ -44,7 +44,6 @@ main :: proc()
 
     parser := nm.Parser {
         userData = &context_allocator,
-        parentStackBuffer = PARENT_STACK_BUFFER[:], 
         alloc = _alloc,
         free = _free,
     }
@@ -55,5 +54,5 @@ main :: proc()
         os.exit(-1)}
 
     structChain: nm.Structure;
-    nm.parseFile(&parser, "example.txt", &structChain, &name, SOURCE_BUFFER[:], OUTPUT_BUFFER[:], &foutHdl, parseCallback)
+    nm.parseFile(&parser, PARENT_STACK_BUFFER[:], "example.txt", &structChain, &name, SOURCE_BUFFER[:], OUTPUT_BUFFER[:], &foutHdl, parseCallback)
 }

@@ -18,6 +18,22 @@
             },
         },
         {
+            "label": "build_nested_c",
+            "type": "shell",
+            "command": "make nested_templates -B",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}/tests"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+        },
+        {
             "label": "build_odin",
             "type": "shell",
             "command": "make odin_test -B",

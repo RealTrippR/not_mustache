@@ -1,0 +1,14 @@
+This is an example of nested templates:
+{{>nested_block}} The > syntax specifies that this block will contain a nested template. By default, spacing is not propogated to the nested template.
+    {{name}} - by default, HTML is escaped:
+<h3>Hello, the name is Tripp.</h3>
+
+{{&name}} - permits raw HTML:
+<h3>Hello, the name is Tripp.</h3>
+    
+{{>>nested_block}} The >> sytnax progates spacing to the nested template block.
+    {{name}} - by default, HTML is escaped:
+    <h3>Hello, the name is Tripp.</h3>
+    
+    {{&name}} - permits raw HTML:
+    <h3>Hello, the name is Tripp.</h3>

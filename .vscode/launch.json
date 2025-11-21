@@ -22,6 +22,26 @@
             ]
         },
         {
+            "preLaunchTask": "build_nested_c", // forces tasks.json build group to run
+            "name": "NESTED_TEST",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/tests/build/nested_test.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/tests",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
             "type": "cppvsdbg",
             "request": "launch",
             "preLaunchTask": "build_odin",

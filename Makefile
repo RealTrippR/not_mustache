@@ -1,5 +1,6 @@
 INCL := -I src -I src/deps
-GEN_FLAGS := -g
+WERR_FLAGS := -Werror=int-conversion -Werror=pointer-arith  -Werror=implicit-function-declaration -Werror=incompatible-pointer-types -Werror=return-type
+GEN_FLAGS := -g $(WERR_FLAGS)
 
 DEPS_SRC := src/deps/streql/strneql_x64_win.obj
 

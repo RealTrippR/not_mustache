@@ -1,46 +1,5 @@
-<!DOCTYPE html>
-{{!A simple test of the not-mustache templating engine, written in C99}}
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>{{title}}</title>
-</head>
-<body>
-    /{{name}} - by default, HTML is escaped:
-    <h3>Hello, {{name}}.</h3>
-    /{{&name}} - permits raw HTML:
-    <h3>Hello, {{&name}}.</h3>
+/{{name}} - by default, HTML is escaped:
+<h3>Hello, {{name}}.</h3>
 
-    <p>Welcome to {{site}}.</p>
-    <p>Site up? {{site_up}}</p>
-
-    {{#loggedIn}}
-    <p>You are logged in and have {{messages}} new messages.</p>
-    /{{!Example of nested truthy/falsy statements:}}
-        {{#users[2]}}
-        The 3rd user exists.
-        User 1: {{users[0].data.name}}
-        {{else}}
-        The 3rd user does not exist.
-        User #2: {{users[1].data.name}}
-        {{/}}
-    {{/}} this line is not standalone.
-    {{^loggedIn}}
-    <p>Please <a href="/login">log in to {{site}} </a> to continue.</p>
-    {{/}}
-    ------------------------------------
-    user count: {{len(users)}}
-
-    {{#users[2]}}
-    <p>users[2]: {{users[2].data.name}}</p>
-    The 3rd user does exist.
-    {{/}}
-
-    {{#users}}
-    <p>{{.data.name}} is online.</p>
-    {{/}}
-
-    {{!If / precedes a mustache, it will be escaped. For example: }}
-    Here is an escaped mustache: /{{ESCAPED}}
-</body>
-</html>
+/{{&name}} - permits raw HTML:
+<h3>Hello, {{&name}}.</h3>

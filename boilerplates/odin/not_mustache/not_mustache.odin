@@ -75,7 +75,6 @@ ReadCallback :: proc "c" (udata: rawptr, dst: ^u8, dstlen: u64) -> (u64)
 
 Parser :: struct {
     userData: rawptr,
-    parentStackBuffer: []u8,
     alloc: Alloc,
     free: Free
 }
@@ -86,7 +85,8 @@ ParamType :: enum {
     Number,
     String,
     List,
-    Object
+    Object,
+    Template,
 }
 
 Param :: struct {
@@ -123,6 +123,13 @@ ParamObject ::struct {
     pMembers: ^Param
 };
 
+ParamTemplate :: struct {
+    using param: Param,
+    parameters: ^Param,
+    structure: ^Structure,
+    source: string,
+    parentStackBuffer: []u8
+}
 
 Stream :: struct {
     udata: rawptr,
@@ -168,7 +175,7 @@ foreign not_mustache {
 *****/
 
 @(link_name="mustache_parse_file")
-parseFile :: proc (parser: ^Parser,  filename: string , structChain: ^Structure,  params: ^Param,
+parseFile :: proc (parser: ^Parser, parentStackBuffer: []u8,  filename: string , structChain: ^Structure,  params: ^Param,
     sourceBuffer: []u8,  parseBuffer: []u8,  parseCallbackUdata: rawptr, parseCallback: ParseCallback) -> Err ---
 
 /*****
@@ -191,7 +198,7 @@ parseFile :: proc (parser: ^Parser,  filename: string , structChain: ^Structure,
 *****/
 
 @(link_name="mustache_parse_stream")
-parseStream :: proc (parser: ^Parser,  stream: ^Stream, structChain: ^Structure,  params: ^Param,
+parseStream :: proc (parser: ^Parser, parentStackBuffer: []u8, stream: ^Stream, structChain: ^Structure,  params: ^Param,
     sourceBuffer: []u8,  parseBuffer: []u8,  parseCallbackUdata: rawptr, parseCallback: ParseCallback) -> Err ---
 
 /*****

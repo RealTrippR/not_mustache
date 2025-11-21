@@ -52,6 +52,7 @@ void parse_callback(mustache_parser* parser, void* udata, mustache_slice parsed)
     return;
 }
 
+
 int main()
 {
     uint8_t PARSER_INPUT_BUFFER[4096];

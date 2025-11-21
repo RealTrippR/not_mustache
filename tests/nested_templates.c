@@ -54,7 +54,7 @@ void* _alloc(mustache_parser* parser, size_t bytes) {
 
 
 void _free(mustache_parser* parser, void* b) {
-    //free(b);
+    /*free(b);*/
 }
 
 void parse_callback(mustache_parser* parser, void* udata, mustache_slice parsed)
@@ -64,11 +64,32 @@ void parse_callback(mustache_parser* parser, void* udata, mustache_slice parsed)
     return;
 }
 
+int read_file(const char* fname, uint64_t* flen_out, uint8_t* data_out, uint64_t buf_len) 
+{
+    FILE* fptr = fopen(fname, "rb");
+    if (!fptr) {
+        return -1;
+    }
+    if (flen_out) {
+        fseek(fptr,0,SEEK_END);
+        *flen_out = ftell(fptr);
+        rewind(fptr);
+    }
+
+    if (data_out) {
+        fread(data_out, 1, buf_len, fptr);
+    }
+    return 0;
+}
+
+
+
 int main()
 {
     uint8_t PARSER_INPUT_BUFFER[4096];
     uint8_t PARSER_OUTPUT_BUFFER[8192];
     uint8_t PARENT_STACK_BUFFER[2048];
+    uint8_t PARENT_STACK_BUFFER_NESTED_TEMPLATE[2048];
 
     uint8_t PARSER_STRUCTURE_BUFFER[65536];
     parser_udata udata = { PARSER_STRUCTURE_BUFFER,0,sizeof(PARSER_STRUCTURE_BUFFER)};
@@ -77,6 +98,7 @@ int main()
     parser.alloc = _alloc;
     parser.free = _free;
     parser.userData = &udata;
+    parser.spacesPerTab = 5;
 
     mustache_param_string param_title = {
         .pNext = NULL,
@@ -85,7 +107,7 @@ int main()
         .str = {"Generic Webpage",strlen("Generic Webpage")}
     };
 
-    uint8_t* myName = "'<script> alert(\"you're hacked\") </script>'the name is Tripp";
+    uint8_t* myName = "the name is Tripp";
     mustache_param_string param_name = {
        .pNext = &param_title,
        .type = MUSTACHE_PARAM_STRING,
@@ -155,7 +177,7 @@ int main()
 
     mustache_param_object userData2 = {
         .pNext = NULL,
-         .type = MUSTACHE_PARAM_OBJECT,
+        .type = MUSTACHE_PARAM_OBJECT,
         .name = {"data",strlen("data")},
         .pMembers = &name2
     };
@@ -174,43 +196,79 @@ int main()
         .pValues = &user2
     };
 
-    const char* filename = "basic.html";
+
+
+
+    
+    mustache_const_slice basic_template_source;
+    if (read_file("basic.html",&basic_template_source.len, NULL, 0)) {
+        printf("failed to open file: %s\n","basic.html");
+        return -1;
+    }
+
+    uint8_t template_source_buffer[basic_template_source.len];
+
+    if (read_file("basic.html",NULL, template_source_buffer, basic_template_source.len)) {
+        printf("failed to open file: %s\n","basic.html");
+        return -1;
+    }
+
+    basic_template_source.u = template_source_buffer;
+
+
+    
+    mustache_structure basic_template_struct_chain = {0};
+    mustache_param_template param_basic_template = {
+        .pNext = NULL,
+        .type = MUSTACHE_PARAM_TEMPLATE,
+        .structure = &basic_template_struct_chain,
+        .source = basic_template_source,
+        .name = {"basic_template",strlen(param_basic_template.name.u)},
+        .parameters = &param_list,
+        .parentStackBuffer = {PARENT_STACK_BUFFER_NESTED_TEMPLATE, sizeof(PARENT_STACK_BUFFER_NESTED_TEMPLATE)}
+    };
+
+
+
+
+
+    const char* filename = "nested.html";
     mustache_const_slice filenameSlice = { (const uint8_t*)filename, strlen(filename) };
 
 
-    FILE* fptr = fopen("basic_parsed.html", "wb");
+    FILE* fptr = fopen("nested_parsed.html", "wb");
     if (!fptr) {
         fprintf(stderr,"FAILED TO OPEN FILE\n"); return -1;}
 
 
-
-
     mustache_structure struct_chain = {0};
 
-    if (mustache_parse_file(&parser,
+
+    if (mustache_parse_file(&parser, 
         (mustache_slice){ PARENT_STACK_BUFFER,sizeof(PARENT_STACK_BUFFER) },
-        filenameSlice,
+        filenameSlice, 
         &struct_chain,
-        (mustache_param*)&param_list,
+        (mustache_param*)&param_basic_template,
         (mustache_slice){ PARSER_INPUT_BUFFER,sizeof(PARSER_INPUT_BUFFER) },
         (mustache_slice){ PARSER_OUTPUT_BUFFER,sizeof(PARSER_OUTPUT_BUFFER) },
         fptr, parse_callback) != MUSTACHE_SUCCESS)
     {
-        // mustache_structure_chain_free()
         fprintf(stderr, "MUSTACHE: FAILED TO PARSE FILE\n");
         return -1;
     }
 
 
 
-    // mustache_structure_chain_flush(&struct_chain); // <- this must be called before any
-    // calls to mustache_parse_file or mustache_parse_stream if the parameters for this
-    // structure chain have been invalidated or changed addresses.
-
-    // mustache_structure_chain_free() <- if malloc was used for every node in the structure
-    // chain rather than a unified stack buffer is in the example here, this function would
-    // need to be called to release allocated memory.
-
+    /*
+    mustache_structure_chain_flush(&struct_chain); // <- this must be called before any
+    calls to mustache_parse_file or mustache_parse_stream if the parameters for this
+    structure chain have been invalidated or changed addresses.
+    
+    mustache_structure_chain_free() <- if malloc was used for every node in the structure
+    chain rather than a unified stack buffer is in the example here, this function would
+    need to be called to release allocated memory.
+    */
+   
     fclose(fptr);
 
     return 0;

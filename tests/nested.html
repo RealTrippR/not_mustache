@@ -1,0 +1,6 @@
+This is an example of nested templates:
+/{{>nested_block}} The > syntax specifies that this block will contain a nested template. By default, spacing is not propogated to the nested template.
+    {{>basic_template}}
+    
+/{{>>nested_block}} The >> sytnax progates spacing to the nested template block.
+    {{>>basic_template}}

@@ -8,9 +8,10 @@
 <br>
 
 # <center> Not-Mustache </center> 
-##### <center> Draft Specification </center>
-##### <center> November 2025 </center>
-##### <center> Tripp R. </center>
+#### <center> Template Specification </center>
+###### <center> November 2025 </center>
+###### <center> v01.m01.p00 </center>
+###### <center> Copyright (C) Tripp R., All Rights Reserved </center>
 
 <br>
 <br>
@@ -37,7 +38,7 @@
 [1.4 ................. Standalone Lines](#standalones)  
 [1.5 ....................... List Functions](#list_functions)  
 [1.6 ....................... Variable Types](#variable_types)  
-
+[1.7 ..................... Nested Templates](#nested_templates)
 
 <hr>
 
@@ -130,3 +131,45 @@ index is a constant integer. If the idx is negative, the index should evaluate t
 `String:` an array of bytes with a fixed length. <br>
 `List:` an array of variables that can only be accessed by index notation `[i]`, not my name or structure. <br>
 `Object:` a type that holds a list of variables that can be accessed by name with dot notation `.name` or index notation `[i]`. <br>
+
+##### 1.7 Nested Templates <a id="nested_templates"></a>
+
+Blocks with a mustache opening of a `{{>` or `{{>>` shall be
+treated as a nested templates. The nested template is a unique type of parameter that can be passed into parsing engines.
+
+The nested template should be treated as a sandboxed template, and
+must not have access to any of the parameters fed into
+its parent template. 
+
+A nested template block beginning with double arrows should have its line spacing propogated to the parsed template.
+
+For example, assume the template 'main' has a nested template 'car'
+
+<b>car:</b>
+```
+{{model}}
+{{make}}
+{{year}}
+```
+<b>main:</b>
+```
+Vehicle specifications:
+    {{>car}}
+
+Vehicle specifications:
+    {{>>car}}
+```
+
+The first nested block will be rendered as:
+```    
+    model
+make
+year
+```
+
+and the second nested block will be rendered as:
+```  
+    model
+    make
+    year
+```

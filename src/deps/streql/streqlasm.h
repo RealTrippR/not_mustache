@@ -101,7 +101,7 @@ static int strneql(const char* str1, const char* str2, unsigned int n) {
 #endif
 
 
-// streql case insensitive
+/* streql case insensitive */
 static int streqlci(const char* str1, const char* str2)  {
     while (1) {
         if (tolower(*str1) != tolower(*str2)) {
@@ -117,7 +117,7 @@ static int streqlci(const char* str1, const char* str2)  {
 }
 
 
-// strneql case insensitive
+/* strneql case insensitive */
 static int strneqlci(const char* str1, const char* str2, unsigned int n) {
     size_t i = 0;
     while (i < n) {
