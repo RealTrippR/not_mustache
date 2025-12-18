@@ -1516,7 +1516,8 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
                 mstruct->param = NULL;
                 mstruct->pNext = NULL;
                 mstruct->pLast = last_struct;
-                mstruct->standalone = NULL;
+                
+                asElse->standalone = NULL;
                 asElse->close = NULL;
                 asElse->parent = get_scoped_else_parent(mstruct, first, inputFirst);
                 if (!asElse->parent) {
@@ -1755,8 +1756,9 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
                 mstruct->param = NULL;
                 mstruct->pNext = NULL;
                 mstruct->type = STRUCTURE_TYPE_VAR;
-
+                
                 var_structure* asVar = (var_structure*)mstruct;
+                asVar->standalone = NULL;
 
                 if (*first == '&') {
                     first++;
@@ -2262,15 +2264,37 @@ void mustache_structure_chain_free(mustache_parser* p, mustache_structure* struc
     while (root)
     {
         structure* next = root->pNext;
-        if (root->type == STRUCTURE_TYPE_VAR || root->type == STRUCTURE_TYPE_CLOSE || 
-            root->type == STRUCTURE_TYPE_SCOPED_CARET || root->type == STRUCTURE_TYPE_SCOPED_POUND ||
-            root->type == STRUCTURE_TYPE_ELSE 
-        ) {
-            if (root->standalone) {
-                p->free(p,root->standalone);
+        if (root->type == STRUCTURE_TYPE_ELSE) {
+            else_structure* as = (else_structure*)root;
+            if (as->standalone) {
+                p->free(p,as->standalone);
             }
         }
-
+        else if (root->type == STRUCTURE_TYPE_VAR) {
+            var_structure* as = (var_structure*)root;
+            if (as->standalone) {
+                p->free(p,as->standalone);
+            }
+        }
+        else if (root->type == STRUCTURE_TYPE_CLOSE) {
+            close_structure* as = (close_structure*)root;
+            if (as->standalone) {
+                p->free(p,as->standalone);
+            }
+        }
+        else if (root->type == STRUCTURE_TYPE_SCOPED_CARET) {
+            scoped_structure* as = (scoped_structure*)root;
+            if (as->standalone) {
+                p->free(p,as->standalone);
+            }
+        }
+        else if (root->type == STRUCTURE_TYPE_SCOPED_POUND) {
+            scoped_structure* as = (scoped_structure*)root;
+            if (as->standalone) {
+                p->free(p,as->standalone);
+            }
+        }
+        
         p->free(p,root);
         root = next;
     }
