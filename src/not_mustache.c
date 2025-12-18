@@ -2319,7 +2319,7 @@ uint8_t mustache_parse_file(mustache_parser* parser, mustache_slice parentStackB
         .seekCallback = fseek_callback,
     };
 
-    uint8_t err = mustache_parse_stream(parser, parentStackBuffer, &stream, structChain, params, parseBuffer, sourceBuffer, parseCallbackUdata, parseCallback);
+    uint8_t err = mustache_parse_stream(parser, parentStackBuffer, &stream, structChain, params, sourceBuffer, parseBuffer, parseCallbackUdata, parseCallback);
     fclose(fptr);
     return err;
 }
