@@ -2262,13 +2262,20 @@ void mustache_structure_chain_free(mustache_parser* p, mustache_structure* struc
     while (root)
     {
         structure* next = root->pNext;
-        if (root->standalone) {
-            p->free(p,root->standalone);
+        if (root->type == STRUCTURE_TYPE_VAR || root->type == STRUCTURE_TYPE_CLOSE || 
+            root->type == STRUCTURE_TYPE_SCOPED_CARET || root->type == STRUCTURE_TYPE_SCOPED_POUND ||
+            root->type == STRUCTURE_TYPE_ELSE 
+        ) {
+            if (root->standalone) {
+                p->free(p,root->standalone);
+            }
         }
 
         p->free(p,root);
         root = next;
     }
+
+    memset(structure_chain, 0, sizeof(*structure_chain));
 }
 
 void mustache_structure_chain_flush(mustache_structure* structure_chain)
