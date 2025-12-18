@@ -1,7 +1,6 @@
 /*
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- 
 
-
 Robins Free of Charge & Open Source Public License 25
 
 Copyright (C), 2025 - Tripp R. All rights reserved.
@@ -246,6 +245,7 @@ uint8_t mustache_parse_file(mustache_parser* parser, mustache_slice parentStackB
 -+- Parses a mustache template source from an input stream. -+-
 
 @param mustache_parser* parser
+@param mustache_slice parentStackBuffer - a stack to hold the parent context(s)
 @param mustache_stream - the input stream to parse from
 @param mustache_structure* structChain - a pointer to a chain of mustache structures
 @param mustache_param* params - the parameter chain

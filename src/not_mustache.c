@@ -2262,8 +2262,8 @@ void mustache_structure_chain_free(mustache_parser* p, mustache_structure* struc
     while (root)
     {
         structure* next = root->pNext;
-        if (next->standalone) {
-            p->free(p,next->standalone);
+        if (root->standalone) {
+            p->free(p,root->standalone);
         }
 
         p->free(p,root);
@@ -2389,6 +2389,7 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStac
         .u = outputBuffer.u,
         .len = outputHead - outputBuffer.u,
     };
+
     parseCallback(parser, parseCallbackUdata, parsedSlice);
 
     return MUSTACHE_SUCCESS;

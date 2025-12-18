@@ -1,3 +1,6 @@
+#TARGET_MSVC:=-DNOT_MUSTACHE_TARGET_MSVC
+TARGET_MSVC:=
+
 INCL := -I ../src -I ../src/deps
 C_STD := -std=c99
 WERR_FLAGS := -Werror=int-conversion -Werror=pointer-arith  -Werror=implicit-function-declaration -Werror=incompatible-pointer-types -Werror=return-type
@@ -14,7 +17,7 @@ nested_templates: nested_templates.c ../src/not_mustache.c ../src/not_mustache.h
 
 
 ../bin/not_mustache.o: ../src/not_mustache.c ../src/not_mustache.h
-	gcc -c $(GEN_FLAGS) $(INCL) $(DEPS_SRC) -DNOT_MUSTACHE_TARGET_MSVC ../src/not_mustache.c -o ../bin/not_mustache.o
+	gcc -c $(GEN_FLAGS) $(INCL) $(DEPS_SRC) $(TARGET_MSVC) ../src/not_mustache.c -o ../bin/not_mustache.o
 
 odin_test: test.odin ../bin/not_mustache.o
 	odin build test.odin -file -out:$(BUILD_DIR)/test.exe -crt-mode:dynamic -linker:lld -collection:not_mustache_bin=../bin -o:none -debug
