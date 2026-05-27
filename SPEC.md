@@ -32,13 +32,15 @@
 
 ##### [PREFACE](#preface)
 
-[1.1 ............... Block Expressions](#block_expressions)  
-[1.2 ........................... Comments](#comments)  
-[1.3 ... Truthy / Falsy Expressions](#truthy_falsy)  
-[1.4 ................. Standalone Lines](#standalones)  
+[1.1 .................... Block Expressions](#block_expressions)  
+[1.2 ............................. Comments](#comments)  
+[1.3 ........... Truthy / Falsy Expressions](#truthy_falsy)  
+[1.4 ..................... Standalone Lines](#standalones)  
 [1.5 ....................... List Functions](#list_functions)  
 [1.6 ....................... Variable Types](#variable_types)  
 [1.7 ..................... Nested Templates](#nested_templates)
+[1.8 .................... Object Parameters](#objects)
+[1.9 ................ Syntactic Conventions](#syntactic)
 
 <hr>
 
@@ -95,6 +97,26 @@ Optionally, the name of the variable being closed may be written within the clos
 {{#var}}
 {{/var}}
 ```
+
+
+For each loops repeat the contents of their scope upon evaluation. 
+To give an example, the list of strings 'people' given the values of ['Dennis', 'Jonathan', 'Audrey'] input to the template:
+`
+{{#people}}
+person:
+    {{.}}
+{{/}}
+`
+
+would evaluate as
+`
+person:
+    Dennis
+person:
+    Jonathan
+person:
+    Audrey
+`
 
 
 

@@ -1882,7 +1882,7 @@ static mustache_param* resolve_param_member(mustache_param* root, const uint8_t*
     const uint8_t* lastDot = NULL;
     while (cur <= strEnd)
     {
-        if (*cur == '[') {
+        if (*cur == '[' && (param->type == MUSTACHE_PARAM_LIST||param->type==MUSTACHE_PARAM_OBJECT)) {
             const uint8_t* intFirst = cur+1;
             while (*cur != ']' || cur == strEnd) {
                 cur++;
@@ -1896,7 +1896,7 @@ static mustache_param* resolve_param_member(mustache_param* root, const uint8_t*
                 return NULL;
             param = child;
         }
-        else if (*cur == '.' || cur == strEnd)
+        else if ((*cur == '.' && (param->type == MUSTACHE_PARAM_LIST||param->type==MUSTACHE_PARAM_OBJECT)) || cur == strEnd)
         {    
             if (lastDot) {
 
@@ -1912,6 +1912,7 @@ static mustache_param* resolve_param_member(mustache_param* root, const uint8_t*
                 else {
                     i = UINT32_MAX;
                 }
+                mustache_param_list* p = (mustache_param_list*)param;
 
                 param = ((mustache_param_list*)param)->pValues;
                 while (param && i > 0)
@@ -2070,7 +2071,6 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
             }
             if (mstruct->param) {
                 outputHead = write_variable(mstruct->param, outputHead, outputEnd, asVar->escapeHTML);
-                int p =0;
             }
         }
         else if (mstruct->type == STRUCTURE_TYPE_ELSE)
