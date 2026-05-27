@@ -3,3 +3,17 @@
 
 /{{&name}} - permits raw HTML:
 <h3>Hello, {{&name}}.</h3>
+
+People:
+{{#people}}
+    {{.}}
+{{/people}}
+    
+The first person is: {{people[0]}}
+
+Users:
+{{#users}}
+    name: {{.data.name}}
+    len: {{len(.data.name)}}
+{{/user}}
+

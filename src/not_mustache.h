@@ -160,7 +160,7 @@ typedef struct {
     void* pNext;
     MUSTACHE_PARAM_TYPE type;
     mustache_const_slice name;
-    void* pValues;
+    void* pValues; // a pointer to a linked list of mustache parameter objects 
     uint32_t valueCount;
 } mustache_param_list;
 
@@ -175,7 +175,7 @@ typedef struct {
     void* pNext;
     MUSTACHE_PARAM_TYPE type;
     mustache_const_slice name;
-    void* pMembers;
+    void* pMembers; // a pointer to a linked list of mustache parameter objects 
 } mustache_param_object;
 
 typedef struct {
@@ -183,7 +183,7 @@ typedef struct {
     MUSTACHE_PARAM_TYPE type;
     mustache_const_slice name;
 
-    void* parameters;
+    void* parameters; // a pointer to a linked list of mustache parameter objects
     mustache_structure* structure;
     mustache_const_slice source;
     

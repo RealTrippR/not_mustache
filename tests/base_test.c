@@ -78,8 +78,32 @@ int main()
     parser.free = _free;
     parser.userData = &udata;
 
-    mustache_param_string param_title = {
+    mustache_param_string person_c = {
         .pNext = NULL,
+        .type = MUSTACHE_PARAM_STRING,
+        .str = {"Audrey", strlen("Audrey")}
+    };
+    mustache_param_string person_b = {
+        .pNext = &person_c,
+        .type = MUSTACHE_PARAM_STRING,
+        .str = {"Jonathan", strlen("Jonathan")}
+    };
+    mustache_param_string person_a = {
+        .pNext = &person_b, 
+        .type = MUSTACHE_PARAM_STRING,
+        .str = {"Dennis", strlen("Dennis")}
+    };
+
+    mustache_param_list param_list = {
+        .pNext = NULL,
+        .type = MUSTACHE_PARAM_LIST,
+        .name = {"people", strlen("people")},
+        .valueCount = 5,
+        .pValues = &person_a
+    };
+
+    mustache_param_string param_title = {
+        .pNext = &param_list,
         .type = MUSTACHE_PARAM_STRING,
         .name = {"title",strlen("title")},
         .str = {"Generic Webpage",strlen("Generic Webpage")}
@@ -135,7 +159,7 @@ int main()
     
     mustache_param_object userData1 = {
         .pNext = NULL,
-         .type = MUSTACHE_PARAM_OBJECT,
+        .type = MUSTACHE_PARAM_OBJECT,
         .name = {"data",strlen("data")},
         .pMembers = &name1
     };
@@ -166,7 +190,7 @@ int main()
         .pMembers = &userData2
     };
 
-    mustache_param_list param_list = {
+    mustache_param_list param_object = {
         .pNext = &param_site,
         .type = MUSTACHE_PARAM_LIST,
         .name = {"users",strlen("users")},
@@ -187,17 +211,19 @@ int main()
 
     mustache_structure struct_chain = {0};
 
-    if (mustache_parse_file(&parser,
+    MUSTACHE_RES r;
+    if ((r=mustache_parse_file(&parser,
         (mustache_slice){ PARENT_STACK_BUFFER,sizeof(PARENT_STACK_BUFFER) },
         filenameSlice,
         &struct_chain,
-        (mustache_param*)&param_list,
+        (mustache_param*)&param_object,
         (mustache_slice){ PARSER_INPUT_BUFFER,sizeof(PARSER_INPUT_BUFFER) },
         (mustache_slice){ PARSER_OUTPUT_BUFFER,sizeof(PARSER_OUTPUT_BUFFER) },
-        fptr, parse_callback) != MUSTACHE_SUCCESS)
+        fptr, parse_callback)) != MUSTACHE_SUCCESS)
     {
-        // mustache_structure_chain_free()
+        // mustache_structure_chain_free() -- not required since all data is being kept in a stack buffer
         fprintf(stderr, "MUSTACHE: FAILED TO PARSE FILE\n");
+        fprintf(stderr, "error code: %d.\n", r);
         return -1;
     }
 

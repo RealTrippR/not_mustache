@@ -2227,7 +2227,6 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
                         parent->curChild = parent->curChild->pNext;
                         if (parent->curIdx < param->valueCount && parent->curChild)
                         {
-
                             eval_jump(mstruct, m_name_first, m_name_end, input, outputEnd, &outputHead, &lastNonEscaped);
 
                             /* go to parent next again */
