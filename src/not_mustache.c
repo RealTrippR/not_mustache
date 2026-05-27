@@ -1973,13 +1973,29 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
             outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, m_len_str_first - mstruct->precedingMustacheLen);
 
 
+            mustache_param* param_to_eval = asLen->param;
             if (!asLen->param) {
-                mstruct->param = get_parameter(int_begin, int_end, globalParams, parentStack);
+                /* HANDLE '.' CASE */
+                if (*int_begin == '.')
+                {
+                    scoped_structure* parent = parent_stack_last(parentStack);
+                    mustache_param* m_child = parent->curChild;
+                    /* resolve '.' or chains '.member.name' */
+                   param_to_eval = resolve_param_member(m_child, int_begin,int_end);
+                } else {
+                    param_to_eval = get_parameter(int_begin, int_end, globalParams, parentStack);
+                }
             }
-            if (asLen->param) {
-                uint32_t cc = get_parent_child_count(mstruct->param);
-                outputHead = u32toa(cc, outputHead, (size_t)(outputEnd - outputHead));
-                lastNonEscaped = m_len_str_end + strlen("}}");
+            if (param_to_eval) {
+                if (param_to_eval->type == MUSTACHE_PARAM_STRING) {
+                    mustache_param_string* string = (mustache_param_string*)param_to_eval;
+                    outputHead = u32toa(string->str.len, outputHead, (size_t)(outputEnd - outputHead));
+                    lastNonEscaped = m_len_str_end + strlen("}}");
+                } else {
+                    uint32_t cc = get_parent_child_count(param_to_eval);
+                    outputHead = u32toa(cc, outputHead, (size_t)(outputEnd - outputHead));
+                    lastNonEscaped = m_len_str_end + strlen("}}");
+                }
             }
         }
         else if (mstruct->type == STRUCTURE_TYPE_NESTED_TEMPLATE) {

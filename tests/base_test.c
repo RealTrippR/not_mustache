@@ -209,6 +209,7 @@ int main()
 
 
 
+    // structure chains be reused, but only if the addresses and types of variables remain constant.
     mustache_structure struct_chain = {0};
 
     MUSTACHE_RES r;

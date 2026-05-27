@@ -16,9 +16,10 @@ People:
 
 The first person is: {{people[0]}}
 
+There are {{len(users)}} users
 Users:
 {{#users}}
     name: {{.data.name}}
-    len: {{len(.data.name)}}
+    name length: {{len(.data.name)}}
 {{/user}}
 
