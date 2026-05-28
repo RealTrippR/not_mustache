@@ -1,17 +1,21 @@
-The first person is: {{people[0]}}
-
-
 /{{name}} - by default, HTML is escaped:
 <h3>Hello, {{name}}.</h3>
 
 /{{&name}} - permits raw HTML:
 <h3>Hello, {{&name}}.</h3>
 
+/{{
+{{#people}}
+    {{.}}
+{{/people}}
+}}
+
+evaluates to:
+
 People:
 {{#people}}
     {{.}}
 {{/people}}
-
 
 
 The first person is: {{people[0]}}
@@ -22,4 +26,3 @@ Users:
     name: {{.data.name}}
     name length: {{len(.data.name)}}
 {{/user}}
-

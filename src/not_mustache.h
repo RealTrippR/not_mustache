@@ -226,7 +226,7 @@ typedef void (*mustache_parse_callback)(mustache_parser* parser, void* udata, mu
 
 @param mustache_parser* parser
 @param mustache_const_slice filename
-@param mustache_structure* structChain - a pointer to a chain of mustache structures. Structure chains be reused, but only if the addresses and types of variables remain constant. Call mustache_structure_chain_flush to reset a structure chain that has been invalidated.
+@param mustache_structure* structChain - a pointer to a chain of mustache structures. Structure chains be reused, but only if the addresses, source template, and types of variables remain constant. Call mustache_structure_chain_flush to reset a structure chain that has been invalidated.
 @param mustache_param* params - the parameter chain
 @param mustache_slice sourceBuffer - if the file length is larger than the source buffer, mustache_parse_file will return ERR_NO_SPACE
 @param mustache_slice parseBuffer - where the parsed template will be stored
@@ -247,7 +247,7 @@ uint8_t mustache_parse_file(mustache_parser* parser, mustache_slice parentStackB
 @param mustache_parser* parser
 @param mustache_slice parentStackBuffer - a stack to hold the parent context(s)
 @param mustache_stream - the input stream to parse from
-@param mustache_structure* structChain - a pointer to a chain of mustache structures. Structure chains be reused, but only if the addresses and types of variables remain constant. Call mustache_structure_chain_flush to reset a structure chain that has been invalidated.
+@param mustache_structure* structChain - a pointer to a chain of mustache structures. Structure chains be reused, but only if the addresses, source template, and types of variables remain constant. Call mustache_structure_chain_flush to reset a structure chain that has been invalidated.
 @param mustache_param* params - the parameter chain
 @param mustache_slice sourceBuffer - if the stream length is larger than the source buffer, mustache_parse_file will return ERR_NO_SPACE
 @param mustache_slice parseBuffer - where the parsed template will be stored
@@ -280,7 +280,8 @@ void mustache_structure_chain_free(mustache_parser* parser, mustache_structure* 
 -+- Primes a structure chain for its next use, this must be called if the parameter -+-
     chain used to generate this structure chain has nodes that were invalidated, changed
     type, or changed addresses since the last call to mustache_parse_file or 
-    mustache_parse_stream.
+    mustache_parse_stream. The source template that was used to generate the structure
+    chain must also remain constant.
 
 @param mustache_structure* structure_chain
 

@@ -1,11 +1,16 @@
-The first person is: Dennis
-
-
 {{name}} - by default, HTML is escaped:
 <h3>Hello, &#039;&lt;script&gt; alert(&quot;you&#039;re hacked&quot;) &lt;/script&gt;&#039;the name is Tripp.</h3>
 
 {{&name}} - permits raw HTML:
 <h3>Hello, '<script> alert("you're hacked") </script>'the name is Tripp.</h3>
+
+{{
+{{#people}}
+    {{.}}
+{{/people}}
+}}
+
+evaluates to:
 
 People:
     Dennis
@@ -13,12 +18,11 @@ People:
     Audrey
 
 
-
 The first person is: Dennis
 
+There are 2 users
 Users:
     name: Elise_06
-    len: 8
+    name length: 8
     name: HowardAtNASA
-    len: 12
-
+    name length: 12

@@ -1482,6 +1482,7 @@ static bool is_truthy(mustache_param* p)
 static uint8_t source_to_structured(mustache_parser* parser, structure* structureRoot, uint8_t* inputFirst, uint8_t* inputHead, uint8_t* inputEnd)
 {
     structure* last_struct = structureRoot;
+    // input end = input head + total bytes
     while (inputHead<inputEnd)
     {
         if (is_mustache_open(inputHead))
@@ -1491,6 +1492,7 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
             uint8_t* end = get_mustache_close(first, inputEnd);
             structure* mstruct = NULL;
 
+            
 
             /* handle escape case */
             if (*(inputHead-1)=='/') {
@@ -1502,8 +1504,33 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
                 skip_range_structure* asSkip = (skip_range_structure*)mstruct;
                 asSkip->skipFirst = (inputHead - inputFirst)-1;
                 asSkip->skipLast = inputHead - inputFirst;
+                // skip last is the offset from skip first - the input head skipped from it's current position + skipLast
+                // find the next {{ on the same level. 
+                
+                inputHead+=2;
+                int depth = 1;
+                while (inputHead < inputEnd)
+                {
+                    if (*inputHead != '/') {
+                        if (inputHead+2<inputEnd) {
+                            if (inputHead[1] == '{' && inputHead[2] == '{') {
+                                depth++;
+                                inputHead+=2;
+                            }
+                            else if (inputHead[1] == '}' && inputHead[2] == '}') {
+                                depth--;
+                                inputHead+=2;
+                            }
+                        }
+                    }
+                    if (depth == 0) {
+                        inputHead++;
+                        break;
+                    }
+                    inputHead++;
+                }
 
-                inputHead = end+2;
+                end = inputHead-2;
             }
             /* handle else case */
             else if (end - first == 4 && strneql(first, "else", 4)) {
