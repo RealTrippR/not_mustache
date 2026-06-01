@@ -1,0 +1,14 @@
+cmake_minimum_required(VERSION 3.23)
+project(not_mustache)
+
+add_library(not_mustache_lib STATIC src.cpp)
+target_include_directories(not_mustache_lib, src/deps)
+
+
+if (WIN32)
+    target_sources(not_mustache_lib, src/not_mustache.c deps/streql_x64_unix.o  deps/strneql_x64_unix.o)
+elseif (UNIX) (
+    target_sources(not_mustache_lib, src/not_mustache.c deps/streql_x64_win.obj deps/strneql_x64_win.obj)
+else
+    target_sources(not_mustache_lib, src/not_mustache.c)
+)

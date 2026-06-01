@@ -18,6 +18,18 @@
             },
         },
         {
+            "label": "build_ex_length",
+            "type": "shell",
+            "command": "make length",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}/examples"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+        },
+        {
             "label": "build_nested_c",
             "type": "shell",
             "command": "make nested_templates -B",

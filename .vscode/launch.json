@@ -22,6 +22,22 @@
             ]
         },
         {
+            "preLaunchTask": "build_ex_length",
+            "name": "example_length",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceRoot}/examples/bin/length.exe",
+            "cwd": "${workspaceFolder}/examples",
+            "MIMode": "gdb",
+              "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
             "preLaunchTask": "build_nested_c", // forces tasks.json build group to run
             "name": "NESTED_TEST",
             "type": "cppdbg",

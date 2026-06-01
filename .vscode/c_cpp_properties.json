@@ -3,7 +3,8 @@
     {
       "name": "Linux",
       "includePath": [
-        "${workspaceFolder}/**"
+        "${workspaceFolder}/**",
+        "${workspaceFolder}/not_mustache/inc"
       ],
       "defines": [],
       "compilerPath": "C:/msys64/ucrt64/bin/g++.exe",

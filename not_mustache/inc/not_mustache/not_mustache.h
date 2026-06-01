@@ -258,7 +258,7 @@ uint8_t mustache_parse_file(mustache_parser* parser, mustache_slice parentStackB
       
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 *****/
-uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStackBuffer, mustache_stream* stream, mustache_structure* structChain, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* parseCallbackUdata, mustache_parse_callback parseCallback);
+uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStackBuffer, mustache_stream* stream, mustache_structure* structChain, mustache_param* params, mustache_slice inputBuffer, mustache_slice parseOutputBuffer, void* parseCallbackUdata, mustache_parse_callback parseCallback);
 
 
 /*****

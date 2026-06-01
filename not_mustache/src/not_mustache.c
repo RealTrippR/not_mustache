@@ -28,7 +28,7 @@ form of Artificial Intelligence.
 
 ***************************************************/
 
-#include "not_mustache.h"
+#include <not_mustache/not_mustache.h>
 #include <string.h>
 #include <streql/streqlasm.h>
 #include <math.h>
@@ -1083,7 +1083,7 @@ static scoped_structure* get_scoped_close_parent(const structure* close, const u
     return NULL;
 }
 
-static uint8_t* get_truthy_close(mustache_const_slice paramName, uint8_t* cur, uint8_t* end)
+static uint8_t* get_truthy_close(mustache_const_slice paramName, uint8_t* cur, const uint8_t* end)
 {
 #ifndef NDEBUG
     if (cur == NULL || end < cur || end == NULL)
@@ -1121,7 +1121,7 @@ static uint8_t* get_truthy_close(mustache_const_slice paramName, uint8_t* cur, u
     return NULL;
 }
 
-static uint8_t* get_line_end(uint8_t* line, uint8_t* searchEnd)
+static const uint8_t* get_line_end(const uint8_t* line, const uint8_t* searchEnd)
 {
     while (line<searchEnd)
     {
@@ -1133,7 +1133,7 @@ static uint8_t* get_line_end(uint8_t* line, uint8_t* searchEnd)
     return line;
 }
 
-static uint8_t* get_line_begin(uint8_t* line, uint8_t* searchBegin) {
+static const uint8_t* get_line_begin(const uint8_t* line, const uint8_t* searchBegin) {
     while (line!=searchBegin)
     {
         if (*line == '\n') {
@@ -1160,7 +1160,7 @@ static MUSTACHE_TYPE get_mustache_type(uint8_t* mustacheOpen) {
         return MUSTACHE_TYPE_VARIABLE;
     }
 }
-static bool is_line_standalone(uint8_t* line, uint8_t* lineEnd)
+static bool is_line_standalone(const uint8_t* line, const uint8_t* lineEnd)
 {
     bool isInMustache = false;
     while (line < lineEnd)
@@ -1193,7 +1193,7 @@ static bool is_line_standalone(uint8_t* line, uint8_t* lineEnd)
     return true;
 }
 
-static bool is_mustache_open(uint8_t* s) {
+static bool is_mustache_open(const uint8_t* s) {
 #ifndef NDEBUG
     if (s == NULL) {
         assert(00 && "is_mustache_open: s MUST NOT BE A VALID POINTER.");
@@ -1205,7 +1205,7 @@ static bool is_mustache_open(uint8_t* s) {
     return false;
 }
 
-static bool is_mustache_close(uint8_t* s) {
+static bool is_mustache_close(const uint8_t* s) {
 #ifndef NDEBUG
     if (s == NULL) {
         assert(00 && "is_mustache_open: s MUST NOT BE A VALID POINTER.");
@@ -1415,7 +1415,7 @@ static uint8_t is_parent(mustache_param* param) {
 }
 
 
-static uint8_t* get_mustache_close(uint8_t* inputHead, uint8_t* inputEnd) {
+static const uint8_t* get_mustache_close(const uint8_t* inputHead, const uint8_t* inputEnd) {
     while (inputHead < inputEnd)
     {
         if (is_mustache_close(inputHead)) {
@@ -1426,7 +1426,7 @@ static uint8_t* get_mustache_close(uint8_t* inputHead, uint8_t* inputEnd) {
     return NULL;
 }
 
-static uint8_t* get_scoped_interior_end(uint8_t* interiorFirst, uint8_t* end)
+static const uint8_t* get_scoped_interior_end(const uint8_t* interiorFirst, const uint8_t* end)
 {
     uint32_t no = 1;
     while (interiorFirst <end)
@@ -1479,7 +1479,7 @@ static bool is_truthy(mustache_param* p)
     return false;
 }
 
-static uint8_t source_to_structured(mustache_parser* parser, structure* structureRoot, uint8_t* inputFirst, uint8_t* inputHead, uint8_t* inputEnd)
+static uint8_t source_to_structured(mustache_parser* parser, structure* structureRoot, const uint8_t* inputFirst, const uint8_t* inputHead, const uint8_t* inputEnd)
 {
     structure* last_struct = structureRoot;
     // input end = input head + total bytes
@@ -1488,8 +1488,8 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
         if (is_mustache_open(inputHead))
         {
             uint8_t precedingStacheLen=2;
-            uint8_t* first = inputHead+2;
-            uint8_t* end = get_mustache_close(first, inputEnd);
+            const uint8_t* first = inputHead+2;
+            const uint8_t* end = get_mustache_close(first, inputEnd);
             structure* mstruct = NULL;
 
             
@@ -1560,9 +1560,9 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
 
                 /* check if it's standalone */
                 bool standlone = false;
-                uint8_t* lineEnd;
+                const uint8_t* lineEnd;
                 /* check if the starting cond. line is standalone. If so, skip it. */
-                uint8_t* lineBeg = get_line_begin(first, inputFirst);
+                const uint8_t* lineBeg = get_line_begin(first, inputFirst);
                 lineEnd = get_line_end(first, inputEnd);
                 if (lineEnd) {
                     standlone = is_line_standalone(lineBeg, lineEnd);
@@ -1594,8 +1594,8 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
                 if (inputHead + 4 >= inputEnd) {
                     return MUSTACHE_ERR_INVALID_TEMPLATE;
                 }
-                uint8_t* interiorFirst = first + 4;
-                uint8_t* interiorEnd=NULL;
+                const uint8_t* interiorFirst = first + 4;
+                const uint8_t* interiorEnd=NULL;
                 inputHead = interiorFirst;
                 /* get closing ')' */
                 while (inputHead < inputEnd)
@@ -1661,9 +1661,9 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
            
                 /* check if it's standalone */
                 bool standlone = false;
-                uint8_t* lineEnd;
+                const uint8_t* lineEnd;
                 /* check if the starting cond. line is standalone. If so, skip it. */
-                uint8_t* lineBeg = get_line_begin(first, inputFirst);
+                const uint8_t* lineBeg = get_line_begin(first, inputFirst);
                 lineEnd = get_line_end(first, inputEnd);
                 if (lineEnd) {
                     standlone = is_line_standalone(lineBeg, lineEnd);
@@ -1703,9 +1703,9 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
 
                 /* check if it's standalone */
                 bool standlone = false;
-                uint8_t* lineEnd;
+                const uint8_t* lineEnd;
                 /* check if the starting cond. line is standalone. If so, skip it. */
-                uint8_t* lineBeg = get_line_begin(first, inputFirst);
+                const uint8_t* lineBeg = get_line_begin(first, inputFirst);
                 lineEnd = get_line_end(first, inputEnd);
                 if (lineEnd) {
                     standlone = is_line_standalone(lineBeg, lineEnd);
@@ -1728,7 +1728,7 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
 
                 scoped_structure* asScoped = (scoped_structure*)mstruct;
                 asScoped->interiorFirst = end - inputFirst + 2;
-                uint8_t* int_end = get_scoped_interior_end(end+2,inputEnd);
+                const uint8_t* int_end = get_scoped_interior_end(end+2,inputEnd);
                 if (!int_end) {
                     asScoped->interiorEnd = 0;
                     parser->free(parser, mstruct);
@@ -1753,7 +1753,7 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
                 asTemplate->precedingSpaces = 0;
 
 
-                uint8_t* cursor = get_line_begin(first, inputFirst);
+                const uint8_t* cursor = get_line_begin(first, inputFirst);
 
                 /* handle propagating spaces */
                 if (cursor && cursor < first-2 && *(first+1) == '>') 
@@ -1963,7 +1963,7 @@ static mustache_param* resolve_param_member(mustache_param* root, const uint8_t*
     return param;
 }
 
-uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_const_slice inputBuffer, uint8_t* inputEnd, structure* structureRoot, 
+uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_const_slice inputBuffer, const uint8_t* inputEnd, structure* structureRoot, 
                          mustache_param* globalParams, parent_stack* parentStack, mustache_parser* parser)
 {
     structure* mstruct = structureRoot->pNext; /* SKIP ROOT */
@@ -2014,6 +2014,12 @@ uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_con
                 }
             }
             if (param_to_eval) {
+                #ifndef NDEBUG
+                if(param_to_eval->type != MUSTACHE_PARAM_STRING && param_to_eval->type != MUSTACHE_PARAM_OBJECT && param_to_eval->type != MUSTACHE_PARAM_LIST) {
+                    assert(0&&"write_structured: INVALID PARAMETER TYPE FOR LEN() CALL");
+                }
+                #endif
+
                 if (param_to_eval->type == MUSTACHE_PARAM_STRING) {
                     mustache_param_string* string = (mustache_param_string*)param_to_eval;
                     outputHead = u32toa(string->str.len, outputHead, (size_t)(outputEnd - outputHead));
@@ -2393,19 +2399,23 @@ uint8_t mustache_parse_file(mustache_parser* parser, mustache_slice parentStackB
 uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStackBuffer, mustache_stream* stream, mustache_structure* structChain,
     mustache_param* params, mustache_slice inputBuffer, mustache_slice outputBuffer, void* parseCallbackUdata, mustache_parse_callback parseCallback)
 {
-    uint8_t* inputHead = inputBuffer.u;
-    uint8_t* inputBeg = inputBuffer.u;
+    const uint8_t* inputHead = inputBuffer.u;
+    const uint8_t* inputBeg = inputBuffer.u;
 
-    uint8_t* mustacheOpen = NULL;
-    uint8_t* mustacheClose = inputBuffer.u;
+    const uint8_t* mustacheOpen = NULL;
+    const uint8_t* mustacheClose = inputBuffer.u;
+
+
+    // reset stream position
+    (void)stream->seekCallback(stream->udata, 0, MUSTACHE_SEEK_SET);
 
     size_t streamLen = stream->seekCallback(stream->udata, 0, MUSTACHE_SEEK_LEN);
     size_t readBytes = stream->readCallback(stream->udata, inputBuffer.u, inputBuffer.len);
-    if (readBytes < streamLen) {
+    if (readBytes > streamLen) {
         return MUSTACHE_ERR_NO_SPACE;
     }
 
-    uint8_t* inputEnd = inputBuffer.u + readBytes;
+    const uint8_t* inputEnd = inputBuffer.u + readBytes;
 
 
     if (readBytes < 4 || readBytes >= UINT32_MAX-3) {
@@ -2431,7 +2441,6 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStac
         }
     }
     else {
-
         /* RESET EVAL STATE */
         structure* root = (structure*)structureRoot;
         root = root->pNext;
@@ -2462,6 +2471,7 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStac
         .u = outputBuffer.u,
         .len = outputHead - outputBuffer.u,
     };
+
 
     parseCallback(parser, parseCallbackUdata, parsedSlice);
 
