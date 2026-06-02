@@ -366,7 +366,13 @@ int32_t strtoi32(const char* str, uint8_t bufflen, int32_t* strLenOut)
 }
 
 static int nm_isinf(double x) {
-    return x == 1.0 / 0.0 || x == -1.0 / 0.0;
+    uint64_t bits;
+    memcpy(&bits, &x, sizeof(bits));
+
+    uint64_t exp = (bits >> 52) & 0x7FF;
+    uint64_t mant = bits & ((1ULL << 52) - 1);
+
+    return exp == 0x7FF && mant == 0;
 }
 
 static void parent_stack_pop(parent_stack* stack)

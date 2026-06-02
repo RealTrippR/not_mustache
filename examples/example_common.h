@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <not_mustache.h>
-#include <not_mustache_pmacros.h>
+#include <not_mustache/not_mustache.h>
+#include <not_mustache/not_mustache_pmacros.h>
 
 typedef struct 
 {

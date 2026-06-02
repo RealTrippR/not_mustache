@@ -15,7 +15,7 @@ const char* TEMPLATE =
 
 
 
-#include <example_common.h>
+#include "example_common.h"
 
 
 
@@ -53,7 +53,7 @@ int main()
     if (parsed_template_len == 0) {
         printf("PARSED TEMPLATE IS EMPTY [parsed_template_len = 0].\n");
     } else {
-        printf("PARSED TEMPLATE\n=============================\n%.*s",parsed_template_len, parsed_template);
+        printf("PARSED TEMPLATE\n=============================\n%.*s",(uint32_t)parsed_template_len, parsed_template);
     }
 
 bail:
