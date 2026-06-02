@@ -14,7 +14,7 @@ Call `structure_chain_flush` to clear a structure chain if any of the following 
 * parameter addresses
 * parameter types
 
-`mustache_structure_chain_free` MUST BE CALLED to free any memory allocated for a `mustache_structure` chain.
+`mustache_structure_chain_free` **MUST BE CALLED** to free any memory allocated for a `mustache_structure` chain.
 
 Note that `mustache_parse_file` uses `mustache_parse_stream` internally; it only exists to simplify the process of reading template files.
 
