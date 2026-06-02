@@ -44,7 +44,7 @@ availble in your system path. If you plan to link with MSVC or Odin, define the 
 - Enum Types: CamelCase
 - Enum Values: UPPER_SNAKE_CASE
 
-## About the C Template Engine
+# About the C Template Engine
 
 Not Mustache has no strict requirements for the design of templating engines.
 
