@@ -1,15 +1,15 @@
 /*
-Copyright © 2025 Tripp Robins
+Copyright � 2025 Tripp Robins
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this
-software and associated documentation files (the “Software”), to deal in the Software
+software and associated documentation files (the "Software"), to deal in the Software
 without restriction, including without limitation the rights to use, copy, modify, merge,
 publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons
 to whom the Software is furnished to do so, subject to the following conditions:
 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
 THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
 TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
@@ -18,56 +18,49 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR TH
 #ifndef TRIPP_STREQL_ASM_H
 #define TRIPP_STREQL_ASM_H
 
-#include <ctype.h>
 
 #if defined(_MSC_VER)
-    #if defined(_M_X64)
-        #define STREQL_SIMD_SUPPORTED 1
-    #else
-        #define STREQL_SIMD_SUPPORTED 0
-    #endif
+#if defined(_M_X64)
+#define STREQL_SIMD_SUPPORTED 1
 #else
-    #if defined(__SSE4_2__)
-            #define STREQL_SIMD_SUPPORTED 1
-        #else
-            #define STREQL_SIMD_SUPPORTED 0
-    #endif
+#define STREQL_SIMD_SUPPORTED 0
+#endif
+#else
+#if defined(__SSE4_2__)
+#define STREQL_SIMD_SUPPORTED 1
+#else
+#define STREQL_SIMD_SUPPORTED 0
+#endif
 #endif
 
-#if (defined(_M_X64) || defined(__aarch64__))
+#if (defined(_M_X64) || defined(__x86_64__) || defined(__aarch64__))
 #define STREQL_SUPPORTED_ARCHITECHURE 1
-#elif
+#else
 #define STREQL_SUPPORTED_ARCHITECHURE 0
 #endif
+#if (defined(_WIN32) || defined(_WIN64)) || (defined(__x86_64__)) && (STREQL_SUPPORTED_ARCHITECHURE) && (STREQL_SIMD_SUPPORTED)
 
-#if ((STREQL_SUPPORTED_ARCHITECHURE==1) && (STREQL_SIMD_SUPPORTED==1))
-    #if (defined(_WIN32) || defined(_WIN64)) || (defined(__x86_64__))
+int streql_x64_win(const char*, const char*);
 
-        int streql_x64_win(const char*, const char*);
+int strneql_x64_win(const char*, const char*, size_t);
 
-        int strneql_x64_win(const char*, const char*, size_t);
+#define streql(str1,str2) streql_x64_win(str1,str2)
 
-        #define streql(str1,str2) streql_x64_win(str1,str2)
+#define strneql(str1,str2,n) strneql_x64_win(str1,str2,n)
 
-        #define strneql(str1,str2,n) strneql_x64_win(str1,str2,n)
+/* https://stackoverflow.com/questions/142508/how-do-i-check-os-with-a-preprocessor-directive */
+#elif (defined(__linux__) || defined(__unix) || defined(__APPLE__)) && (STREQL_SUPPORTED_ARCHITECHURE) && (STREQL_SIMD_SUPPORTED)
 
-        #define strnt2eql(str1,str2) strneql_x64_win(str1,str2,strlen(str2))
+int streql_x64_unix(const char*, const char*);
 
-    /* https://stackoverflow.com/questions/142508/how-do-i-check-os-with-a-preprocessor-directive */
-    #elif (defined(__linux__) || defined(__unix) || defined(__APPLE__))
+int strneql_x64_unix(const char*, const char*, size_t);
 
-        int streql_x64_unix(const char*, const char*);
+#define streql(str1,str2) streql_x64_unix(str1,str2)
 
-        int strneql_x64_unix(const char*, const char*, size_t);
+#define strneql(str1,str2,n) strneql_x64_unix(str1,str2,n)
 
-        #define streql(str1,str2) streql_x64_unix(str1,str2)
-
-        #define strneql(str1,str2,n) strneql_x64_unix(str1,str2,n)
-
-        #define strnt2eql(str1,str2) strneql_x64_unix(str1,str2,strlen(str2))
-
-    #endif
 #else
+#include <stddef.h>
 /* C fallback */
 static int streql(const char* str1, const char* str2) {
     while (1) {
@@ -95,44 +88,7 @@ static int strneql(const char* str1, const char* str2, unsigned int n) {
     }
     return 1;
 }
-
-#define strnt2eql(str1,str2) strneql(str1,str2,strlen(str2))
-
 #endif
-
-
-/* streql case insensitive */
-static int streqlci(const char* str1, const char* str2)  {
-    while (1) {
-        if (tolower(*str1) != tolower(*str2)) {
-            return 0;
-        }
-        else if (*str1 == 0 || str2 == 0) {
-            return 1;
-        }
-        str1++;
-        str2++;
-    }
-    return 1;
-}
-
-
-/* strneql case insensitive */
-static int strneqlci(const char* str1, const char* str2, unsigned int n) {
-    size_t i = 0;
-    while (i < n) {
-        if (tolower(str1[i]) != tolower(str2[i])) {
-            return 0;
-        }
-        if (str1[i] == '\0' || str2[i] == '\0') {
-            return 1;
-        }
-        i++;
-    }
-    return 1;
-}
-
-#define strnt2eqlci(str1,str2) strneqlci(str1,str2,strlen(str2))
 
 
 #endif /* !TRIPP_STREQL_ASM_H */

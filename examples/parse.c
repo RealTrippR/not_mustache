@@ -1,4 +1,4 @@
-const char* TEMPLATE =
+const char* TEMPLATEXX =
 "Not mustache has no strict requirements for the design of templating engines.\n"
 "The engine included with this project uses a buffered callback system, in which\n"
 "a stream object (mustache_stream) copies data from a stream into the input buffer\n"
@@ -25,25 +25,58 @@ const char* TEMPLATE =
 "\n"
 "All chunks fed to this engine from a stream must contain only complete top-level scopes,\n"
 "they cannot be split across chunks.\n"
-"For example, /{{#mybool}} /{{var}} {{/}} is valid,"
-"but /{{#mybool}} /{{var}} in one chunk and {{/}} in next is invalid.\n"
+"For example, /{{#mybool}} {{var}} {{/}} is valid, "
+"but /{{#mybool}} {{var}} in one chunk and {{/}} in next is invalid.\n"
 "\n"
 "\n"
 "This parsing engine does not do any significant checks on the validity of a not-mustache template;\n"
 "it is not recommended that you use untrusted templates in this parsing engine.";
 
-#include <not_mustache/not_mustache.h>
 #include "example_common.h"
 
+const char* TEMPLATE =
+"* * STRING TEMPLATE * *\n"
+"/{{ The len() function evaluates the length\n"
+"of a string parameter or the number of children\n"
+"parameters within a list or object parameter.\n"
+"}}\n"
+"\n"
+"For example, calling len on the object parameter {{&obj_as_str}}\n"
+"evaluates as {{len(obj)}}\n"
+"\n"
+"len on the list parameter {{&list_as_str}}\n"
+"evaluates as {{len(list)}}\n"
+"\n"
+"len on the string parameter {{&str_as_str}}\n"
+"evaluates as {{len(str)}}\n";
 
 int main() 
 {
     MUSTACHE_RES res = 0;
+    MPARAM_CSTR(str1, "", NULL,  "Am");
+    MPARAM_CSTR(str2, "", &str1, "I");
+    MPARAM_CSTR(str3, "", &str2, "Therefore");
+    MPARAM_CSTR(str4, "", &str3, "Think");
+    MPARAM_CSTR(str5, "", &str4, "I");
+
+
+    MPARAM_OBJECT(objvar, "obj", NULL, &str5);
+    MPARAM_CSTR(strvar, "str", &objvar, "Hello World.");
+    MPARAM_LIST(listvar, "list", &strvar, 5, &str5);
+
+
+    void *pstrbuf=NULL;
+
+    MPARAM_STR(objvar_astr, "obj_as_str", &listvar, MPARAM_TO_STR_C_ALLOC(&pstrbuf, &objvar));
+    MPARAM_STR(strvar_astr, "str_as_str", &objvar_astr, MPARAM_TO_STR_C_ALLOC(&pstrbuf, &strvar));
+    MPARAM_STR(listvar_astr, "list_as_str", &strvar_astr, MPARAM_TO_STR_C_ALLOC(&pstrbuf, &listvar));
+
 
     char* parsed_template = NULL;
     size_t parsed_template_len;
 
-    if ((res = parse_template(TEMPLATE, &parsed_template, &parsed_template_len, NULL))<0) {
+
+    if ((res = parse_template_segmented(TEMPLATE, &parsed_template, &parsed_template_len, &listvar_astr))<0) {
         goto bail;
     }
 

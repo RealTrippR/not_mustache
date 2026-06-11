@@ -1,4 +1,5 @@
 const char* TEMPLATE =
+"* * STRING TEMPLATE * *\n"
 "/{{ The len() function evaluates the length\n"
 "of a string parameter or the number of children\n"
 "parameters within a list or object parameter.\n"

@@ -39,8 +39,6 @@
 [1.5 ....................... List Functions](#list_functions)  
 [1.6 ....................... Variable Types](#variable_types)  
 [1.7 ..................... Nested Templates](#nested_templates)
-[1.8 .................... Object Parameters](#objects)
-[1.9 ................ Syntactic Conventions](#syntactic)
 
 <hr>
 
@@ -141,9 +139,7 @@ The not-mustache 1.0 spec provides two list functions:
 - `len(arr)`
 - `arr[idx]`
 
-The `len(arr)` evaluates to the number of variables within that list, and `arr[idx]` evaluates to the member of the list at a given index, where
-index is a constant integer. If the idx is negative, the index should evaluate to `arr[len(arr)-|idx|]`.
-
+The `len(arr)` evaluates to the number of child parameters within a list, object, or the length of a string parameter. `arr[idx]` evaluates to the member of the list at a given index, where index is a constant integer. If the idx is negative, the index should evaluate to `arr[len(arr)-|idx|]`.
 <hr>
 
 ##### 1.6 Variable Types <a id="variable_types"></a>

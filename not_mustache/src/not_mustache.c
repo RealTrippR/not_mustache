@@ -33,6 +33,7 @@ form of Artificial Intelligence.
 #include <streql/streqlasm.h>
 #include <math.h>
 #include <stdio.h>
+#include <ctype.h>
 
 #ifndef NDEBUG
 #include <assert.h>
@@ -83,6 +84,14 @@ typedef struct {
 } standalone_data;
 
 typedef struct structure structure;
+
+typedef struct {
+    structure* pNext;
+    structure* pLast;
+    STRUCTURE_TYPE type;
+
+    structure* pNextRoot;
+} structure_root;
 typedef struct structure {
     structure* pNext;
     structure* pLast;
@@ -1485,7 +1494,7 @@ static bool is_truthy(mustache_param* p)
     return false;
 }
 
-static uint8_t source_to_structured(mustache_parser* parser, structure* structureRoot, const uint8_t* inputFirst, const uint8_t* inputHead, const uint8_t* inputEnd)
+static uint8_t source_to_structured(mustache_parser* parser, structure* structureRoot, const uint8_t* inputFirst, const uint8_t* inputHead, const uint8_t* inputEnd, structure** last_structure)
 {
     structure* last_struct = structureRoot;
     // input end = input head + total bytes
@@ -1817,6 +1826,7 @@ static uint8_t source_to_structured(mustache_parser* parser, structure* structur
         inputHead++;
     }
     
+    *last_structure=last_struct;
     return MUSTACHE_SUCCESS;
 }
 
@@ -2371,6 +2381,81 @@ void mustache_structure_chain_flush(mustache_structure* structure_chain)
     }
 }
 
+char mustache_get_stream_range(int32_t input_buffer_len, const char** first, const char** end, const char* src_first, const char* src_end) {
+    *first= src_first;
+    if (src_end>src_first+input_buffer_len) {
+        src_end = src_first+input_buffer_len;
+    }
+    *end = src_end;
+    // get first '{{'
+    const char* scur = src_first;
+    int32_t depth = 0;
+    int32_t dist;
+
+    const char* tmpo=NULL;
+    const char* tmpc=NULL;
+    while (scur < src_end)
+    {
+        if (scur!=src_end-2) {
+            if (scur[0]=='{'&&scur[1]=='{') {
+                depth++;
+                dist=0;
+                tmpo=scur;
+                // move cursor to closing '{{'
+                if (scur<src_end+3 && (scur[2]=='#' || scur[2]=='^')) {
+                    while (scur < src_end-2)
+                    {
+                        if (scur[0]=='}'&&scur[1]=='}') {
+                            break;
+                        }
+                        scur++;
+                    }                
+                } else {
+                    scur+=1;
+                }
+            }
+            if (depth > 0 && scur < src_end-3) {
+                if (scur[0]=='}'&&scur[1]=='}') {
+                    depth--;
+                    if (depth == 0) {
+                        tmpc=scur+2;
+                        uintptr_t d = tmpc-*first;
+                        if (d > input_buffer_len) {
+                            *end = tmpo-1;
+                            break;
+                        }
+                        *end = scur;
+                    }
+                }
+            }
+        }
+        scur++;
+    }
+    
+
+    // get last '}}'
+
+    // returns -1 if it was unable to find any complete stache ranges
+    if (!tmpc && depth > 0) {
+        return -1;
+    }
+    if (depth>0) {
+        *end = tmpc;
+    } else {
+        *end = src_end;
+    }
+    #ifndef NDEBUG
+    uintptr_t d = *end-*first;
+    if (d>input_buffer_len) {
+        printf("mustache_get_stream_range: *end-*first [%d] is greater than input_buffer_len [%d]\\n", d, input_buffer_len);
+        assert(00&&"REVIEW CONSOLE.");
+    }
+    #endif
+    return 0;
+}
+
+
+
 uint8_t mustache_parse_file(mustache_parser* parser, mustache_slice parentStackBuffer, mustache_const_slice filename, mustache_structure* structChain, mustache_param* params, mustache_slice sourceBuffer, mustache_slice parseBuffer, void* parseCallbackUdata, mustache_parse_callback parseCallback)
 {
 #ifndef NDEBUG
@@ -2416,70 +2501,94 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStac
     (void)stream->seekCallback(stream->udata, 0, MUSTACHE_SEEK_SET);
 
     size_t streamLen = stream->seekCallback(stream->udata, 0, MUSTACHE_SEEK_LEN);
-    size_t readBytes = stream->readCallback(stream->udata, inputBuffer.u, inputBuffer.len);
-    if (readBytes > streamLen) {
-        return MUSTACHE_ERR_NO_SPACE;
-    }
-
-    const uint8_t* inputEnd = inputBuffer.u + readBytes;
+    if (streamLen==0) {return MUSTACHE_SUCCESS;}
+    size_t read_len=0; // total number of bytes read
 
 
-    if (readBytes < 4 || readBytes >= UINT32_MAX-3) {
-        return MUSTACHE_ERR_ARGS;
-    }
+    structure_root* structureRoot = (structure_root*)structChain;
+    structureRoot->type = STRUCTURE_TYPE_ROOT;
+    structure_root* lastRoot = structureRoot;
 
-    uint8_t* outputHead = outputBuffer.u;
-    uint8_t* outputEnd = outputBuffer.u + outputBuffer.len;
+    int i = 0;
+    while (read_len<streamLen)
+    {
+        size_t dstlen = (streamLen-read_len < inputBuffer.len) ? (streamLen-read_len) : inputBuffer.len;
+        size_t readBytes = stream->readCallback(stream->udata, inputBuffer.u, dstlen);
+        if (readBytes > streamLen) {
+            return MUSTACHE_ERR_NO_SPACE;
+        }
+        if (readBytes==0) {
+            break;
+        }
+        
+        read_len+=readBytes;
 
-    parent_stack parentStack = {
-        .buf =  parentStackBuffer,
-        .count = 0,
-        .MAX_COUNT = parentStackBuffer.len / sizeof(void*)
-    };
+        const uint8_t* inputEnd = inputBuffer.u + readBytes;
 
-    structure* structureRoot = (structure*)structChain;
+        uint8_t* outputHead = outputBuffer.u;
+        uint8_t* outputEnd = outputBuffer.u + outputBuffer.len;
 
-    MUSTACHE_RES err;
-    if (!structureRoot->pNext) {
-        err = source_to_structured(parser, structureRoot, inputBuffer.u, inputHead, inputEnd);
+        parent_stack parentStack = {
+            .buf =  parentStackBuffer,
+            .count = 0,
+            .MAX_COUNT = parentStackBuffer.len / sizeof(void*)
+        };
+
+
+        structure* laststruct=NULL;
+        MUSTACHE_RES err;
+        if (!lastRoot->pNext) {
+            err = source_to_structured(parser, (structure*)lastRoot, inputBuffer.u, inputHead, inputEnd, &laststruct);
+            if (err) {
+                return err;
+            }
+            // alloc another root
+            structure_root* root = parser->alloc(parser,sizeof(structure_root));
+            if (!root) {
+                return MUSTACHE_ERR_ALLOC;
+            }
+            lastRoot->pNextRoot = (structure*)root;
+        }
+        else {
+            /* RESET EVAL STATE ON EXISTING STRUCTURE  CHAIN */
+            structure* root = (structure*)lastRoot;
+            root = root->pNext;
+            while (root)
+            {
+                if (root->type == STRUCTURE_TYPE_SCOPED_CARET || root->type == STRUCTURE_TYPE_SCOPED_POUND)
+                {
+                    scoped_structure* asScoped = (scoped_structure*)root;
+                    asScoped->wasEvaluated = false;
+                }
+                root = root->pNext;
+            }
+        }
+
+        err = write_structured(
+            outputBuffer, &outputHead,
+            (mustache_const_slice){ inputBuffer.u,inputBuffer.len },
+            inputBuffer.u + readBytes,
+            (structure*)lastRoot, params, &parentStack,
+            parser
+        );
+
         if (err) {
             return err;
         }
-    }
-    else {
-        /* RESET EVAL STATE */
-        structure* root = (structure*)structureRoot;
-        root = root->pNext;
-        while (root)
-        {
-            if (root->type == STRUCTURE_TYPE_SCOPED_CARET || root->type == STRUCTURE_TYPE_SCOPED_POUND)
-            {
-                scoped_structure* asScoped = (scoped_structure*)root;
-                asScoped->wasEvaluated = false;
-            }
-            root = root->pNext;
-        }
+
+        mustache_slice parsedSlice = {
+            .u = outputBuffer.u,
+            .len = outputHead - outputBuffer.u,
+        };
+
+
+        parseCallback(parser, parseCallbackUdata, parsedSlice);
+
+        lastRoot = (structure_root*)lastRoot->pNextRoot;
+        ++i;
     }
 
-    err = write_structured(
-        outputBuffer, &outputHead,
-        (mustache_const_slice){ inputBuffer.u,inputBuffer.len },
-        inputBuffer.u + readBytes,
-        structureRoot, params, &parentStack,
-        parser
-    );
 
-    if (err) {
-        return err;
-    }
-
-    mustache_slice parsedSlice = {
-        .u = outputBuffer.u,
-        .len = outputHead - outputBuffer.u,
-    };
-
-
-    parseCallback(parser, parseCallbackUdata, parsedSlice);
 
     return MUSTACHE_SUCCESS;
 }

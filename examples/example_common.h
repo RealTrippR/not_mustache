@@ -4,19 +4,24 @@
 #include <not_mustache/not_mustache.h>
 #include <not_mustache/not_mustache_pmacros.h>
 
+#define SEGMENT_INPUT_BUFFER_LEN 256
+
 typedef struct 
 {
     void* block;
     size_t size; // used size
     size_t capacity; // total capacity
+    char* parsed_data; // ONLY USE FOR parse_template_segmented, DO NOT USE THIS IN ANY OTHER CIRCUMSTANCES,
+                        //  char** parsed_template, will be set to this value
+    size_t parsed_data_len;
 } parser_udata;
 parser_udata parserudata;
 
 typedef struct
 {
-    const unsigned char* data;
-    size_t cur;
-    size_t len;
+    const unsigned char* data;  // ptr to template source 
+    size_t cur;                 // offset from template source
+    size_t len;                 // total length of template source
 } stream_udata;
 stream_udata streamudata;
 
@@ -56,6 +61,7 @@ size_t stream_read_callback(void* u, uint8_t* dst, size_t dstlen) {
         cpylen = dstlen;
     }
     memcpy(dst, udata->data + udata->cur, cpylen);
+    udata->cur += cpylen;
     return cpylen;
 }
 
@@ -116,6 +122,8 @@ MUSTACHE_RES parse_template(const char* template_source, char** parsed_template,
     parserudata = (parser_udata){ .block = PARSER_STRUCTURE_BUFFER, .size = 0, .capacity = sizeof(PARSER_STRUCTURE_BUFFER)};
     streamudata = (stream_udata){ .data = template_source, .cur = 0, .len = strlen(template_source) };
 
+    parser_stream.readCallback = stream_read_callback;
+    parser_stream.seekCallback = stream_seek_callback;
 
     *parsed_template = NULL;
 
@@ -146,6 +154,128 @@ MUSTACHE_RES parse_template(const char* template_source, char** parsed_template,
         return m;
     }
 }
+
+
+
+void write_parsed_data_callback(mustache_parser* parser, void* __udata, mustache_slice parsed) {
+    parser_udata* udata = __udata;
+    void* tmp = realloc(udata->parsed_data,udata->parsed_data_len+parsed.len);
+    if (!tmp) {
+        return;
+    }
+    udata->parsed_data = tmp;
+    memcpy((char*)udata->parsed_data+udata->parsed_data_len,parsed.u,parsed.len);
+    udata->parsed_data_len+=parsed.len;
+    
+   // printf("\nwrite_parsed_data_callback: %d bytes added to output.\n=====\n%.*s\n====\n\n", parsed.len, parsed.len,parsed.u);
+
+}
+
+
+
+
+
+size_t segmented_stream_read_callback(void* u, uint8_t* dst, size_t dstlen) {
+    stream_udata* udata = u;
+
+    const char *f,*e; 
+    if (mustache_get_stream_range(
+        SEGMENT_INPUT_BUFFER_LEN,
+        &f,
+        &e,
+        udata->data+udata->cur,
+        udata->data+udata->len
+    ) <0) {
+        printf("segmented_stream_read_callback: closing stream, unable to fit complete mustache range within input buffer.\n");
+        return 0;
+    }
+
+    size_t cpylen = f-e;
+    if (cpylen > dstlen) {
+        cpylen = dstlen;
+    }
+
+    memcpy(dst, udata->data + udata->cur, cpylen);
+    printf("COPYING SLICE [%d bytes] =======\n%.*s\n",e-f,cpylen, udata->data+udata->cur);
+
+    udata->cur += cpylen;
+
+    return cpylen;
+}
+
+uint64_t segmented_stream_seek_callback(void* u, int64_t whence, MUSTACHE_SEEK_DIR seekdir) {
+    stream_udata* udata = u;
+    switch (seekdir)
+    {
+    case MUSTACHE_SEEK_LEN:
+        return udata->len;
+    case MUSTACHE_SEEK_SET:
+        udata->cur=whence;
+        return udata->cur;
+    case MUSTACHE_SEEK_END:
+        if (whence < 0 && -whence >= udata->len) {
+            udata->cur = 0;
+            return 0;
+        }
+        udata->cur=udata->len+whence-1;
+        if (udata->cur >= udata->cur+udata->len) {
+            udata->cur = udata->cur+udata->len-1;
+        }
+        return udata->cur;
+    default:
+        return 0;
+    }
+}
+
+
+
+/* identical to parse_template, except it uses a much, much smaller input and output buffer, forcing the parser to 
+parse it across several chunks*/
+MUSTACHE_RES parse_template_segmented(const char* template_source, char** parsed_template, size_t* parsed_template_length, void* arglist) {
+    uint8_t PARSER_INPUT_BUFFER[SEGMENT_INPUT_BUFFER_LEN];
+    uint8_t PARSER_OUTPUT_BUFFER[SEGMENT_INPUT_BUFFER_LEN*4];
+    uint8_t PARENT_STACK_BUFFER[1024];
+
+    uint8_t PARSER_STRUCTURE_BUFFER[65536];
+    parserudata = (parser_udata){ .block = PARSER_STRUCTURE_BUFFER, .size = 0, .capacity = sizeof(PARSER_STRUCTURE_BUFFER), NULL, 0};
+    streamudata = (stream_udata){ .data = template_source, .cur = 0, .len = strlen(template_source) };
+
+    parser_stream.readCallback = segmented_stream_read_callback;
+    parser_stream.seekCallback = segmented_stream_seek_callback;
+
+
+    *parsed_template = NULL;
+
+    
+
+    MUSTACHE_RES m = mustache_parse_stream(
+        &parser,
+        (mustache_slice){PARENT_STACK_BUFFER, sizeof(PARENT_STACK_BUFFER)},
+        &parser_stream,
+        &struct_chain,
+        arglist,
+        (mustache_slice){PARSER_INPUT_BUFFER, sizeof(PARSER_INPUT_BUFFER)},
+        (mustache_slice){PARSER_OUTPUT_BUFFER, sizeof(PARSER_OUTPUT_BUFFER)},
+        &parserudata,
+        write_parsed_data_callback
+    );
+
+    *parsed_template_length = parserudata.parsed_data_len;
+    *parsed_template = parserudata.parsed_data;
+    if (m<0) {
+        return m;
+    } else {
+        if (*parsed_template_length == 0) {
+            return MUSTACHE_SUCCESS;
+        }
+
+        
+        return m;
+    }
+}
+
+
+
 
 
 MUSTACHE_RES free_template(char* parsed_template)

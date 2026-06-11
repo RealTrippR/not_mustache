@@ -289,6 +289,14 @@ void mustache_structure_chain_free(mustache_parser* parser, mustache_structure* 
 *****/
 void mustache_structure_chain_flush(mustache_structure* structure_chain);
 
+
+/*****
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+@param const char** first
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+*****/
+char mustache_get_stream_range(int32_t input_buffer_len, const char** first, const char** end, const char* src_first, const char* src_end);
+
 /*****
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 
