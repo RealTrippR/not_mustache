@@ -50,10 +50,10 @@ form of Artificial Intelligence.
 #define array_count(A) (sizeof(A)/sizeof(A[0]))
 
 typedef enum {
-    MUSTACHE_TYPE_VARIABLE,
-    MUSTACHE_TYPE_FALSY,
-    MUSTACHE_TYPE_POUND,
-    MUSTACHE_TYPE_CLOSE,
+    MUSTACHE_TYPE_NONE,
+    MUSTACHE_TYPE_NORMAL,
+    MUSTACHE_TYPE_CONDITIONAL,
+    MUSTACHE_TYPE_SLASH,
     MUSTACHE_TYPE_COMMENT
 } MUSTACHE_TYPE;
 
@@ -63,20 +63,98 @@ typedef struct {
     uint32_t MAX_COUNT;
 } parent_stack;
 
+static void* parent_stack_get_last(parent_stack *pstack) {
+    if (pstack->count) {
+        return ((void**)pstack->buf.u)[pstack->count-1];
+    }
+    return NULL;
+}
+
+static MUSTACHE_RES parent_stack_push(mustache_parser *parser, parent_stack *pstack, void* parent_param) {
+    if (pstack->count==pstack->MAX_COUNT) {
+        char err_msg[256];
+        snprintf(err_msg, sizeof(err_msg), "stack overflow: parent stack of max_count %d of size %d bytes has reached capacity.", pstack->MAX_COUNT, pstack->buf.len);
+        parser->err_callback(parser,err_msg,NULL,NULL);
+        return MUSTACHE_ERR_NO_SPACE;
+    }
+    ((void**)pstack->buf.u)[pstack->count]=parent_param;
+    pstack->count++;
+    return MUSTACHE_SUCCESS;
+}
+
+static void parent_stack_pop(parent_stack *pstack) {
+    pstack->count--;
+}
+
+static mustache_param* get_pstack_child_by_index(parent_stack *pstack, uint32_t dotcount, int32_t idx)
+{
+    mustache_param* child;
+    uint32_t max_children;
+
+    // go up
+    mustache_param* parent = ((void**)pstack->buf.u)[pstack->count-1-dotcount];
+    child = mustache_parameter_get_child_list(parent, &max_children);
+    uint32_t i = 0;
+    while (child && i < max_children)
+    {
+        if (i==idx) {
+            return child;
+        }
+        ++i;
+        child = child->pNext;
+    }
+    return NULL;
+    
+}
+
+static mustache_param* get_pstack_child_by_name(parent_stack *pstack,  uint32_t dotcount, const char* name, const char* name_end)
+{
+    mustache_param* child;
+    uint32_t max_children;
+
+    // go up
+    mustache_param* parent = ((void**)pstack->buf.u)[pstack->count-1-dotcount];
+    child = mustache_parameter_get_child_list(parent, &max_children);
+    uint32_t i = 0;
+    while (child && i < max_children)
+    {
+        if (strneql(child->name.u, name, min(child->name.len, name_end-name))) {
+            return child;
+        }
+        ++i;
+        child = child->pNext;
+    }
+    return NULL;
+}
+
+
+static mustache_param* get_root_child_by_name(mustache_param* root, const char* name, const char* name_end) {
+    mustache_param* child = root;
+    uint32_t max_children;
+
+    while (child)
+    {
+        if (strneql(child->name.u, name, min(child->name.len, name_end-name))) {
+            return child;
+        }
+        child = child->pNext;
+    }
+    return NULL;
+}
+
 typedef enum
 {
-    STRUCTURE_TYPE_VAR=0,
-    STRUCTURE_TYPE_SCOPED_POUND,
-    STRUCTURE_TYPE_SCOPED_CARET,
-    STRUCTURE_TYPE_COMMENT,
-    STRUCTURE_TYPE_CLOSE,
-    STRUCTURE_TYPE_SKIP_RANGE,
-    STRUCTURE_TYPE_ROOT,
-    STRUCTURE_TYPE_LEN,
-    STRUCTURE_TYPE_ELSE,
-    STRUCTURE_TYPE_NESTED_TEMPLATE
+    STRUCTURE_TYPE_VAR = 0,
+    STRUCTURE_TYPE_FOREACH = 1,
+    STRUCTURE_TYPE_CONDITIONAL = 2,
+    STRUCTURE_TYPE_ROOT
 } STRUCTURE_TYPE;
 
+typedef enum
+{
+    CONDITIONAL_TYPE_OR,
+    CONDITIONAL_TYPE_AND
+} CONDITIONAL_TYPE;
 
 typedef struct {
     uint32_t lineBegin;
@@ -84,6 +162,11 @@ typedef struct {
 } standalone_data;
 
 typedef struct structure structure;
+typedef struct structure {
+    structure* pNext;
+    structure* pLast;
+    STRUCTURE_TYPE type;
+} structure;
 
 typedef struct {
     structure* pNext;
@@ -92,129 +175,80 @@ typedef struct {
 
     structure* pNextRoot;
 } structure_root;
-typedef struct structure {
+
+typedef struct conditional {
+    CONDITIONAL_TYPE type;
+    char falsy: 1;
+    char left_is_param: 1; // 0 = left is conditional, 1 = left is parameter
+    char right_is_param: 1; // 0 = right is conditional, 1 = right is parameter
+    void* left;
+    void* right;
+} conditional;
+
+
+typedef enum {
+    PARAM_FLAG_ALLOW_HTML = 0x1
+} PARAM_FLAGS_ENUM;
+
+typedef uint8_t PARAM_FLAGS;
+typedef struct structure_var {
     structure* pNext;
     structure* pLast;
     STRUCTURE_TYPE type;
 
-    uint32_t contentsFirst; /*the first byte after the second '{'*/
-    uint32_t contentsEnd; /* the first closing '}'*/
-    uint32_t precedingMustacheLen;
+    const char* first; // ptr to the label
+    uint16_t label_length; // the length of the label (opening mustache line), = len("{{#name}}")
 
-    mustache_param* param;
-    standalone_data* standalone;
-} structure;
+    uint16_t parameter_count;
+    mustache_param** parameters;
 
-typedef struct {
+    PARAM_FLAGS* param_flags;
+} structure_vars;
+typedef struct structure_foreach {
     structure* pNext;
     structure* pLast;
     STRUCTURE_TYPE type;
+    const char* first; // ptr to the label
+    uint16_t label_length; // the length of the label (opening mustache line), = len("{{#name}}")
 
-    uint32_t skipFirst;
-    uint32_t skipLast;
-    uint32_t precedingMustacheLen;
+    uint32_t content_length; // the length of the interior content [beginning at the first char after the label, and ending the at the first char before the end_label]
+    uint32_t end_label_length; // the length of the end label (closing mustache line), = len("{{/}}"
 
-} skip_range_structure;
+    mustache_param* param; // the parent object to search in the foreach loop
+} structure_foreach;
 
-
-typedef struct {
+typedef struct structure_conditional {
     structure* pNext;
     structure* pLast;
     STRUCTURE_TYPE type;
+    const char* first; // ptr to the label
+    uint16_t label_length; // the length of the label (opening mustache line), = len("{{#name}}")
 
-    uint32_t contentsFirst;
-    uint32_t contentsEnd;
-    uint32_t precedingMustacheLen;
-
-    mustache_param* param;
-
-    uint32_t interiorFirst; /*the first byte of the interior var name*/
-    uint32_t interiorEnd; /*the last byte + 1 of the interior (the closing ')') after the name*/
-} len_structure;
+    uint32_t content_length; // the length of the interior content [beginning at the first char after the label, and ending the at the first char before the end_label]
+    uint32_t end_label_length; // the length of the end label (closing mustache line), = len("{{/}}"
+    
+    uint16_t conditional_count;
+    conditional* conditionals;
+} structure_conditional;
 
 
-typedef struct {
-    structure* pNext;
-    structure* pLast;
-    STRUCTURE_TYPE type;
 
-    uint32_t contentsFirst; /*the first byte after the second '{'*/
-    uint32_t contentsEnd; /*the first closing '}'*/
-    uint32_t precedingMustacheLen;
 
-    mustache_param* param;
-    standalone_data* standalone;
 
-    bool escapeHTML;
-} var_structure;
+mustache_param* mustache_parameter_get_child_list(mustache_param* param, uint32_t* max_child_count) {
+    if (param->type == MUSTACHE_PARAM_LIST) {
+        mustache_param_list* p = (mustache_param_list*)param;
+        *max_child_count=p->valueCount;
+        return p->pValues;
+    }
+    if (param->type == MUSTACHE_PARAM_OBJECT) {
+        mustache_param_object* o = (mustache_param_object*)param;
+        *max_child_count = UINT32_MAX;
+        return o->pMembers;
+    }
+    return NULL;
+}
 
-typedef struct {
-    structure* pNext;
-    structure* pLast;
-    STRUCTURE_TYPE type;
-    uint32_t contentsFirst; /*the first byte after the second '{'*/
-    uint32_t contentsEnd; /*the first closing '}'*/
-
-    mustache_param* param;
-    standalone_data* standalone;
-    uint32_t precedingMustacheLen;
-
-    uint32_t interiorFirst; /*the first byte of the interior*/
-    uint32_t interiorEnd; /*the end of the interior - the first opening bracket of it's closing mustache '{{/name}}'*/
-
-    uint32_t curIdx; /*current child index*/
-    mustache_param* curChild;
-
-    structure* close_or_else;
-
-    bool wasEvaluated;
-    bool renderedLastEvaluation;
-
-} scoped_structure;
-
-typedef struct {
-    structure* pNext;
-    structure* pLast;
-    STRUCTURE_TYPE type;
-
-    uint32_t contentsFirst; /*the first byte after the second '{'*/
-    uint32_t contentsEnd; /*the first closing '}'*/
-    uint32_t precedingMustacheLen;
-
-    mustache_param* param;
-    standalone_data* standalone;
-
-    scoped_structure* parent; /*either of type close or type else*/
-} close_structure;
-
-typedef struct {
-    structure* pNext;
-    structure* pLast;
-    STRUCTURE_TYPE type;
-
-    uint32_t contentsFirst; /*the first byte after the second '{'*/
-    uint32_t contentsEnd; /*the first closing '}'*/
-    uint32_t precedingMustacheLen;
-
-    mustache_param* param;
-    uint32_t precedingSpaces;
-} nested_template_structure;
-
-typedef struct {
-    structure* pNext;
-    structure* pLast;
-    STRUCTURE_TYPE type;
-
-    uint32_t contentsFirst; /*the first byte after the second '{'*/
-    uint32_t contentsEnd; /*the first closing '}'*/
-    uint32_t precedingMustacheLen;
-    uint32_t interiorBegin;
-
-    standalone_data* standalone;
-
-    scoped_structure* parent;
-    close_structure* close;
-} else_structure;
 
 #if defined(NOT_MUSTACHE_TARGET_MSVC)
 void __chkstk(void);
@@ -383,56 +417,6 @@ static int nm_isinf(double x) {
 
     return exp == 0x7FF && mant == 0;
 }
-
-static void parent_stack_pop(parent_stack* stack)
-{
-#ifndef NDEBUG
-    if (stack->count == 0) {
-        assert(00 && "parent_stack_pop: INVALID CALL, STACK WILL UNDERFLOW!");
-    }
-#endif
-
-    stack->count--;
-}
-
-static uint8_t parent_stack_push(parent_stack* stack, scoped_structure* parent)
-{
-#ifndef NDEBUG
-    if (!(parent->type == STRUCTURE_TYPE_SCOPED_CARET || parent->type == STRUCTURE_TYPE_SCOPED_POUND)) {
-        assert(00 && "parent_stack_push: param IS NOT A PARENT.");
-    }
-    mustache_param* p = parent->param;
-    if (!(p->type == MUSTACHE_PARAM_LIST || p->type == MUSTACHE_PARAM_OBJECT)) {
-        assert(00 && "parent_stack_push: param IS NOT A PARENT.");
-    }
-#endif
-
-    if (stack->count == stack->MAX_COUNT) {
-        return MUSTACHE_ERR_OVERFLOW;
-    }
-
-    uint8_t** pointers = (uint8_t**)stack->buf.u;
-    pointers[stack->count] = (uint8_t*)parent;
-    stack->count++;
-
-    return MUSTACHE_SUCCESS;
-};
-
-/*returns the last structure on the stack.*/
-static scoped_structure* parent_stack_last(parent_stack* stack)
-{
-#ifndef NDEBUG
-    if (stack->count == 0) {
-        assert(00 && "parent_stack_last: INVALID CALL, stack.count MUST NOT BE EMPTY!");
-    }
-#endif
-
-    scoped_structure** pointers = (scoped_structure**)stack->buf.u;
-    return pointers[stack->count - 1];
-}
-
-
-
 static uint32_t u32_round_to_next_power_of_2(uint32_t v) {
     v--; /*https://stackoverflow.com/questions/466204/rounding-up-to-next-power-of-2*/
     v |= v >> 1;
@@ -811,18 +795,6 @@ static double n_pow10(uint16_t n) {
     return 0;
 }
 
-static const uint8_t* get_key_value_end(const uint8_t* start, const uint8_t* sourceEnd)
-{
-    while (start < sourceEnd)
-    {
-        if (isspace(*start) || *start == '}') {
-            return start;
-        }
-        start++;
-    }
-    return sourceEnd;
-}
-
 /* converts an i64 to a NON null-terminated ASCII string and returns the number of digits written. */
 static int16_t i64toa(int64_t n,uint8_t* buf, size_t size)
 {
@@ -1018,124 +990,6 @@ static size_t fread_callback(void* udata, uint8_t* dst, size_t dstlen)
 }
 
 
-
-
-static scoped_structure* get_scoped_else_parent(const structure* close, const uint8_t* interiorFirst, const uint8_t* sourceBegin)
-{
-    const uint8_t* cur = interiorFirst;
-    uint32_t depth = 1;
-    const uint8_t* blockEnd=NULL;
-    while (cur >= sourceBegin + 1) {
-        const uint8_t* blockBegin = NULL;
-        if (*cur == '}' && *(cur - 1) == '}') {
-            blockBegin = blockEnd;
-        }
-
-        if (*cur == '{' && *(cur - 1) == '{' && *(cur - 2) != '/') {
-            if (*(cur + 1) == '#' || *(cur + 1) == '^') {
-                depth--;
-                if (depth == 0) {
-                    uint32_t sourceOffset = cur - sourceBegin + 1;
-                    /* GET PARAMETER */
-                    const structure* curStr = (const structure*)close;
-                    curStr = curStr->pLast;
-                    while (curStr)
-                    {
-                        if (curStr->contentsFirst == sourceOffset) {
-                            return (scoped_structure*)curStr;
-                        }
-                        curStr = curStr->pLast;
-                    }
-                    return NULL;
-                }
-            }
-            else if (*(cur + 1) == '/') {
-                depth++;
-                cur -= 1;
-            }
-
-            blockEnd = NULL;
-            blockBegin = NULL;
-        }
-        cur--;
-    }
-
-    return NULL;
-}
-static scoped_structure* get_scoped_close_parent(const structure* close, const uint8_t* interiorFirst, const uint8_t* sourceBegin)
-{
-    const uint8_t* cur = interiorFirst;
-    uint32_t depth = 0;
-    while (cur >= sourceBegin + 1) {
-        const uint8_t* blockBegin = NULL;
-        if (*cur == '{' && *(cur - 1) == '{' && *(cur - 2) != '/') {
-            if (*(cur + 1) == '#' || *(cur + 1) == '^' || strneql(cur+1,"else",4)) {
-                depth--;
-                if (depth == 0) {
-                    uint32_t sourceOffset = cur - sourceBegin + 1;
-                    /* GET PARAMETER */
-                    const structure* curStr = (const structure*)close;
-                    curStr = curStr->pLast;
-                    while (curStr)
-                    {
-                        if (curStr->contentsFirst == sourceOffset) {
-                            return (scoped_structure*)curStr;
-                        }
-                        curStr = curStr->pLast;
-                    }
-                    return NULL;
-                }
-            }
-            else if (*(cur + 1) == '/') {
-                depth++;
-                cur -= 1;
-            }
-            blockBegin = cur;
-        }
-        cur--;
-    }
-
-    return NULL;
-}
-
-static uint8_t* get_truthy_close(mustache_const_slice paramName, uint8_t* cur, const uint8_t* end)
-{
-#ifndef NDEBUG
-    if (cur == NULL || end < cur || end == NULL)
-    {
-        assert(00 && "get_truthy_close: INVALID CUR OR END ARGUMENT");
-    }
-#endif
-
-    while (cur < end-2)
-    {
-        if (*cur == '{' && *(cur + 1) == '{' && *(cur + 2) == '/')
-        {
-            /* find end */
-            cur += 3;
-
-            uint8_t* cur2 = cur;
-            while (cur2<end-1)
-            {
-                if (*cur2 == '}' && *(cur2 + 1) == '}')
-                {
-                    break;
-                }
-                cur2++;
-            }
-
-          
-            uint16_t dist = cur2 - cur;
-            if (paramName.len == dist && strneql(paramName.u, cur, dist))
-            {
-                return cur-3;
-            }
-        }
-        cur++;
-    }
-    return NULL;
-}
-
 static const uint8_t* get_line_end(const uint8_t* line, const uint8_t* searchEnd)
 {
     while (line<searchEnd)
@@ -1160,21 +1014,6 @@ static const uint8_t* get_line_begin(const uint8_t* line, const uint8_t* searchB
     return line;
 }
 
-static MUSTACHE_TYPE get_mustache_type(uint8_t* mustacheOpen) {
-    switch (*mustacheOpen)
-    {
-    case '!':
-        return MUSTACHE_TYPE_COMMENT;
-    case '^':
-        return MUSTACHE_TYPE_FALSY;
-    case '#':
-        return MUSTACHE_TYPE_POUND;
-    case '/':
-        return MUSTACHE_TYPE_CLOSE;
-    default:
-        return MUSTACHE_TYPE_VARIABLE;
-    }
-}
 static bool is_line_standalone(const uint8_t* line, const uint8_t* lineEnd)
 {
     bool isInMustache = false;
@@ -1208,18 +1047,6 @@ static bool is_line_standalone(const uint8_t* line, const uint8_t* lineEnd)
     return true;
 }
 
-static bool is_mustache_open(const uint8_t* s) {
-#ifndef NDEBUG
-    if (s == NULL) {
-        assert(00 && "is_mustache_open: s MUST NOT BE A VALID POINTER.");
-    }
-#endif
-    if (*s == '{' && *(s + 1) == '{') {
-        return true;
-    }
-    return false;
-}
-
 static bool is_mustache_close(const uint8_t* s) {
 #ifndef NDEBUG
     if (s == NULL) {
@@ -1249,99 +1076,6 @@ static mustache_param_template* get_nested_template_param(const uint8_t* nameBeg
     return NULL;
 }
 
-
-static mustache_param* get_parameter(const uint8_t* nameBegin, const uint8_t* nameEnd, mustache_param* globalParams, parent_stack* parentStack)
-{
-    /* TRAVERSE PARENT STACK */
-    uint16_t nameLen = nameEnd - nameBegin;
-    int32_t i;
-    for (i = parentStack->count-1; i >= 0; i--) {
-        scoped_structure* structNode = ((scoped_structure**)parentStack->buf.u)[i];
-        mustache_param* parentNode = structNode->param;
-
-        mustache_param* node;
-        uint32_t MAX_COUNT;
-
-        if (parentNode->type == MUSTACHE_PARAM_LIST) {
-            mustache_param_list* list = (mustache_param_list*)parentNode;
-            MAX_COUNT = list->valueCount;
-            node = list->pValues;
-        }
-        else if (parentNode->type == MUSTACHE_PARAM_OBJECT) {
-            mustache_param_object* obj = (mustache_param_object*)parentNode;
-            node = obj->pMembers;
-            MAX_COUNT = UINT32_MAX;
-        }
-        else {
-#ifndef NDEBUG
-            assert(00 && "get_parameter: PARENT STACK IS CORRUPTED.");
-#endif
-            return NULL;
-        }
-
-
-
-
-        uint32_t c = 0;
-        while (node&&c<MAX_COUNT)
-        {
-            if (node->name.len == nameLen &&
-                strneql(node->name.u, nameBegin, nameLen))
-            {
-                return node;
-            }
-            node = node->pNext;
-            c++;
-        }
-    }
-
-    /* TRAVERSE GLOBAL PARAMS */
-    while (globalParams) {
-        if (globalParams->name.len == nameLen &&
-            strneql(globalParams->name.u, nameBegin, nameLen))
-        {
-            return globalParams;
-        }
-
-        globalParams = globalParams->pNext;
-    }
-
-    return NULL;
-}
-
-static mustache_param* get_child_param(uint8_t* nameBegin, uint8_t nameLen, mustache_param* parent)
-{
-
-    mustache_param* node;
-    uint32_t MAX_COUNT;
-
-    if (parent->type == MUSTACHE_PARAM_LIST) {
-        mustache_param_list* list = (mustache_param_list*)parent;
-        MAX_COUNT = list->valueCount;
-        node = list->pValues;
-    }
-    else if (parent->type == MUSTACHE_PARAM_OBJECT) {
-        mustache_param_object* obj = (mustache_param_object*)obj;
-        node = obj->pMembers;
-        MAX_COUNT = UINT32_MAX;
-    }
-    else {
-#ifndef NDEBUG
-        assert(00 && "get_child_param: parent IS NOT A PARENT.");
-#endif
-    }
-
-    uint32_t ni = 0;
-    while (node && ni < MAX_COUNT)
-    {
-        if (node->name.len == nameLen && strneql(node->name.u, nameBegin, nameLen)) {
-            return node;
-        }
-        node = node->pNext;
-        ni++;
-    }
-    return NULL;
-}
 
 static uint8_t* write_variable(mustache_param* paramBASE, uint8_t* outputHead, uint8_t* outputEnd, bool escapeHTML)
 {
@@ -1422,411 +1156,300 @@ static uint8_t* write_variable(mustache_param* paramBASE, uint8_t* outputHead, u
     return outputHead;
 }
 
-static uint8_t is_parent(mustache_param* param) {
-    if (param->type == MUSTACHE_PARAM_LIST || param->type == MUSTACHE_PARAM_OBJECT) {
-        return true;
+
+static MUSTACHE_TYPE is_mustache_open(const char* stache, const char* first, const char* end) {
+    if (stache!=first && stache+2 < end && stache[-1] == '/' &&stache[0]=='{'&&(stache[1]=='{' || stache[1]=='(')) {
+        return MUSTACHE_TYPE_SLASH;
+    } else if (stache+2<end && stache[0]=='{'&&stache[1]=='{'&&stache[2]=='!') {
+        return MUSTACHE_TYPE_COMMENT;
+    } else if (stache+1<end) {
+        if (stache[0]=='{'&&stache[1]=='(') {
+            return MUSTACHE_TYPE_CONDITIONAL;
+        } else if (stache[0]=='{'&&stache[1]=='{') {
+            return MUSTACHE_TYPE_NORMAL;
+        }
     }
-    return false;
+    return MUSTACHE_TYPE_NONE;
 }
 
-
-static const uint8_t* get_mustache_close(const uint8_t* inputHead, const uint8_t* inputEnd) {
-    while (inputHead < inputEnd)
+// returns the end of a label.
+// the end of the label, for example, '{{my_label}}e'
+// would be the 'e' character just after, equiv. to &"{{my_label}}"+strlen("{{my_label}}")
+static const char* get_mustache_label_end(const char* stache, const char* input_end) {
+    while (stache+1<input_end)
     {
-        if (is_mustache_close(inputHead)) {
-            return inputHead;
+        if (stache[0]=='}' && stache[1]=='}'){
+            return stache+2;
         }
-        inputHead++;
-    }
-    return NULL;
-}
-
-static const uint8_t* get_scoped_interior_end(const uint8_t* interiorFirst, const uint8_t* end)
-{
-    uint32_t no = 1;
-    while (interiorFirst <end)
-    {
-        uint8_t prefix = *(interiorFirst + 2);
-        if (is_mustache_open(interiorFirst) && (prefix=='#' || prefix=='^')) {
-            no++;
-            interiorFirst += 2;
-        }
-        else if (is_mustache_open(interiorFirst) && prefix=='/') {
-            no--;
-            if (no == 0) {
-                return interiorFirst;
-            }
-        }
-
-        interiorFirst++;
-    }
-    return NULL;
-}
-
-static bool is_truthy(mustache_param* p)
-{
-    if (p == NULL) {
-        return false;
-    }
-    if (p->type == MUSTACHE_PARAM_STRING) {
-        mustache_param_string* param = (mustache_param_string*)p;
-        if (param->str.len > 0) {
-            return true;
-        } else {
-            return false;
-        }
-    }
-    else if (p->type == MUSTACHE_PARAM_BOOLEAN) {
-        mustache_param_boolean* param = (mustache_param_boolean*)p;
-        return param->value;
-    }
-    else if (p->type == MUSTACHE_PARAM_NUMBER) {
-        mustache_param_number* param = (mustache_param_number*)p;
-        return (bool)param->value;
-    }
-    else if (p->type == MUSTACHE_PARAM_LIST) {
-        mustache_param_list* param = (mustache_param_list*)p;
-        return param->valueCount;
-    }
-    if (p) {
-        return true;
-    }
-    return false;
-}
-
-static uint8_t source_to_structured(mustache_parser* parser, structure* structureRoot, const uint8_t* inputFirst, const uint8_t* inputHead, const uint8_t* inputEnd, structure** last_structure)
-{
-    structure* last_struct = structureRoot;
-    // input end = input head + total bytes
-    while (inputHead<inputEnd)
-    {
-        if (is_mustache_open(inputHead))
-        {
-            uint8_t precedingStacheLen=2;
-            const uint8_t* first = inputHead+2;
-            const uint8_t* end = get_mustache_close(first, inputEnd);
-            structure* mstruct = NULL;
-
-            
-
-            /* handle escape case */
-            if (*(inputHead-1)=='/') {
-                mstruct = parser->alloc(parser, sizeof(skip_range_structure));
-                if (!mstruct) { return MUSTACHE_ERR_ALLOC; }
-                mstruct->type = STRUCTURE_TYPE_SKIP_RANGE;
-                mstruct->pNext = NULL;
-
-                skip_range_structure* asSkip = (skip_range_structure*)mstruct;
-                asSkip->skipFirst = (inputHead - inputFirst)-1;
-                asSkip->skipLast = inputHead - inputFirst;
-                // skip last is the offset from skip first - the input head skipped from it's current position + skipLast
-                // find the next {{ on the same level. 
-                
-                inputHead+=2;
-                int depth = 1;
-                while (inputHead < inputEnd)
-                {
-                    if (*inputHead != '/') {
-                        if (inputHead+2<inputEnd) {
-                            if (inputHead[1] == '{' && inputHead[2] == '{') {
-                                depth++;
-                                inputHead+=2;
-                            }
-                            else if (inputHead[1] == '}' && inputHead[2] == '}') {
-                                depth--;
-                                inputHead+=2;
-                            }
-                        }
-                    }
-                    if (depth == 0) {
-                        inputHead++;
-                        break;
-                    }
-                    inputHead++;
-                }
-
-                end = inputHead-2;
-            }
-            /* handle else case */
-            else if (end - first == 4 && strneql(first, "else", 4)) {
-                int i = 0;
-                mstruct = parser->alloc(parser, sizeof(else_structure));
-                if (!mstruct) { return MUSTACHE_ERR_ALLOC; }
-                mstruct->type = STRUCTURE_TYPE_ELSE;
-
-                else_structure* asElse = (else_structure*)mstruct;
-                mstruct->param = NULL;
-                mstruct->pNext = NULL;
-                mstruct->pLast = last_struct;
-                
-                asElse->standalone = NULL;
-                asElse->close = NULL;
-                asElse->parent = get_scoped_else_parent(mstruct, first, inputFirst);
-                if (!asElse->parent) {
-                    parser->free(parser, mstruct);
-                    return MUSTACHE_ERR_INVALID_TEMPLATE;
-                }
-                if (!asElse->parent->close_or_else) {
-                    asElse->parent->close_or_else = mstruct;
-                }
-
-                mstruct->contentsFirst = first - inputFirst;
-                mstruct->contentsEnd = end - inputFirst;
-
-                /* check if it's standalone */
-                bool standlone = false;
-                const uint8_t* lineEnd;
-                /* check if the starting cond. line is standalone. If so, skip it. */
-                const uint8_t* lineBeg = get_line_begin(first, inputFirst);
-                lineEnd = get_line_end(first, inputEnd);
-                if (lineEnd) {
-                    standlone = is_line_standalone(lineBeg, lineEnd);
-                    if (standlone) {
-                        mstruct->standalone = parser->alloc(parser, sizeof(standalone_data));
-                        if (!mstruct->standalone) {
-                            parser->free(parser, mstruct);
-                            return MUSTACHE_ERR_ALLOC;
-                        }
-                        mstruct->standalone->lineBegin = lineBeg - inputFirst;
-                        mstruct->standalone->lineEnd = lineEnd - inputFirst;
-
-                        asElse->interiorBegin = lineEnd - inputFirst;
-                    }
-                    else {
-                        mstruct->standalone = NULL;
-                        asElse->interiorBegin = asElse->contentsEnd + strlen("}}");
-                    }
-                }
-                else {
-                    asElse->interiorBegin = asElse->contentsEnd + strlen("}}");;
-                }
-
-                inputHead = end + 2;
-            }
-            /* handle len case */
-            else if (end-first>=4 && strneql(first, "len(",4))
-            { 
-                if (inputHead + 4 >= inputEnd) {
-                    return MUSTACHE_ERR_INVALID_TEMPLATE;
-                }
-                const uint8_t* interiorFirst = first + 4;
-                const uint8_t* interiorEnd=NULL;
-                inputHead = interiorFirst;
-                /* get closing ')' */
-                while (inputHead < inputEnd)
-                {
-                    if (*inputHead == ')') {
-                        interiorEnd = inputHead;
-                        break;
-                    }
-                    inputHead++;
-                }
-                if (!interiorEnd) {
-                    return MUSTACHE_ERR_INVALID_TEMPLATE;
-                }
-                mstruct = parser->alloc(parser, sizeof(len_structure));
-                if (!mstruct) { return MUSTACHE_ERR_ALLOC; }
-                mstruct->type = STRUCTURE_TYPE_LEN;
-                mstruct->pNext = NULL;
-
-                len_structure* asLen = (len_structure*)mstruct;
-                asLen->param = NULL;
-                asLen->interiorFirst = (interiorFirst - inputFirst);
-                asLen->interiorEnd = interiorEnd - inputFirst;
-
-                inputHead = end + 2;
-            }
-            /* handle comments and closures */
-            else if (*first == '/' || *first == '!')
-            {
-                if (*first == '/') {
-                    mstruct = parser->alloc(parser, sizeof(close_structure));
-                    if (!mstruct) {
-                        return MUSTACHE_ERR_ALLOC;
-                    }
-                    mstruct->type = STRUCTURE_TYPE_CLOSE;
-                    close_structure* asClosed = (close_structure*)mstruct;
-                    asClosed->pLast = last_struct;
-                    asClosed->parent = get_scoped_close_parent(mstruct,first, inputFirst);
-                    if (!asClosed->parent) {
-                        parser->free(parser, mstruct);
-                        return MUSTACHE_ERR_INVALID_TEMPLATE;
-                    }
-                    if (asClosed->parent->type == STRUCTURE_TYPE_ELSE) {
-                        else_structure* asElse = (else_structure*)asClosed->parent;
-                        if (!asElse->close) {
-                            asElse->close = asClosed;
-                        }
-                    }
-                    else {
-                        if (!asClosed->parent->close_or_else) {
-                            asClosed->parent->close_or_else = (structure*)asClosed;
-                        }
-                    }
-                }
-                else {
-                    mstruct = parser->alloc(parser, sizeof(structure));
-                    if (!mstruct) {
-                        return MUSTACHE_ERR_ALLOC;
-                    }
-                    mstruct->type = STRUCTURE_TYPE_COMMENT;
-                }
-                mstruct->param = NULL;
-                mstruct->pNext = NULL;
-           
-                /* check if it's standalone */
-                bool standlone = false;
-                const uint8_t* lineEnd;
-                /* check if the starting cond. line is standalone. If so, skip it. */
-                const uint8_t* lineBeg = get_line_begin(first, inputFirst);
-                lineEnd = get_line_end(first, inputEnd);
-                if (lineEnd) {
-                    standlone = is_line_standalone(lineBeg, lineEnd);
-                    if (standlone) {
-                      
-                        mstruct->standalone = parser->alloc(parser,sizeof(standalone_data));
-                        if (!mstruct->standalone) {
-                            return MUSTACHE_ERR_ALLOC;
-                        }
-                        mstruct->standalone->lineBegin = lineBeg - inputFirst;
-                        mstruct->standalone->lineEnd = lineEnd - inputFirst;
-                    }
-                    else {
-                        mstruct->standalone = NULL;
-                    }
-                }
-                else {
-                    mstruct->standalone = NULL;
-                }
-            }
-            else if (*first == '^' || *first == '#')
-            {
-                mstruct = parser->alloc(parser, sizeof(scoped_structure));
-                if (!mstruct) {
-                    return MUSTACHE_ERR_ALLOC;
-                }
-
-                mstruct->param = NULL;
-                mstruct->pNext = NULL;
-
-                if (*first == '^') {
-                    mstruct->type = STRUCTURE_TYPE_SCOPED_CARET;
-                }
-                else {
-                    mstruct->type = STRUCTURE_TYPE_SCOPED_POUND;
-                }
-
-                /* check if it's standalone */
-                bool standlone = false;
-                const uint8_t* lineEnd;
-                /* check if the starting cond. line is standalone. If so, skip it. */
-                const uint8_t* lineBeg = get_line_begin(first, inputFirst);
-                lineEnd = get_line_end(first, inputEnd);
-                if (lineEnd) {
-                    standlone = is_line_standalone(lineBeg, lineEnd);
-                    if (standlone) {
-
-                        mstruct->standalone = parser->alloc(parser, sizeof(standalone_data));
-                        if (!mstruct->standalone) {
-                            return MUSTACHE_ERR_ALLOC;
-                        }
-                        mstruct->standalone->lineBegin = lineBeg - inputFirst;
-                        mstruct->standalone->lineEnd = lineEnd - inputFirst;
-                    }
-                    else {
-                        mstruct->standalone = NULL;
-                    }
-                }
-                else {
-                    mstruct->standalone = NULL;
-                }
-
-                scoped_structure* asScoped = (scoped_structure*)mstruct;
-                asScoped->interiorFirst = end - inputFirst + 2;
-                const uint8_t* int_end = get_scoped_interior_end(end+2,inputEnd);
-                if (!int_end) {
-                    asScoped->interiorEnd = 0;
-                    parser->free(parser, mstruct);
-                    return MUSTACHE_ERR_INVALID_TEMPLATE;
-                }
-                asScoped->interiorEnd = int_end - inputFirst;
-                asScoped->close_or_else = NULL;
-                asScoped->wasEvaluated = false;
-            }
-            /* handle nested templates */
-            else if (*first == '>') {
-                mstruct = parser->alloc(parser, sizeof(nested_template_structure));
-                if (!mstruct) {
-                    return MUSTACHE_ERR_ALLOC;
-                }
-                mstruct->param = NULL;
-                mstruct->pNext = NULL;
-                mstruct->type = STRUCTURE_TYPE_NESTED_TEMPLATE;
-                
-                nested_template_structure* asTemplate = (nested_template_structure*)mstruct;
-                precedingStacheLen = 3;
-                asTemplate->precedingSpaces = 0;
-
-
-                const uint8_t* cursor = get_line_begin(first, inputFirst);
-
-                /* handle propagating spaces */
-                if (cursor && cursor < first-2 && *(first+1) == '>') 
-                {
-                    precedingStacheLen = 4;
-                    /* get preceding spaces */
-                    while (cursor < end)
-                    {
-                        if (*cursor == ' ') {
-                            asTemplate->precedingSpaces++;
-                        }
-                        else if (*cursor == '\t') {
-                            asTemplate->precedingSpaces+=parser->spacesPerTab;
-                        }
-                        else {
-                            break;
-                        }
-                        cursor++;
-                    }
-                }
-            }
-            else {
-                mstruct = parser->alloc(parser, sizeof(var_structure));
-                if (!mstruct) {
-                    return MUSTACHE_ERR_ALLOC;
-                }
-                mstruct->param = NULL;
-                mstruct->pNext = NULL;
-                mstruct->type = STRUCTURE_TYPE_VAR;
-                
-                var_structure* asVar = (var_structure*)mstruct;
-                asVar->standalone = NULL;
-
-                if (*first == '&') {
-                    first++;
-                    asVar->escapeHTML = false;
-                    precedingStacheLen = 3;
-                } else {
-                    asVar->escapeHTML = true;
-                }
-            }
-
-            if (mstruct->type != STRUCTURE_TYPE_SKIP_RANGE) {
-                mstruct->contentsFirst = first - inputFirst;
-                mstruct->contentsEnd = end - inputFirst;
-            }
-            inputHead = end + 1;
-
-            last_struct->pNext = mstruct;
-            mstruct->pLast = last_struct;
-            mstruct->precedingMustacheLen = precedingStacheLen;
-            last_struct = mstruct;
-        }
-        
-        inputHead++;
+        stache++;
     }
     
-    *last_structure=last_struct;
+    return NULL;
+}
+
+
+mustache_param* get_parameter_by_name(mustache_parser* parser, mustache_param* proot, parent_stack* pstack, MUSTACHE_PARAM_TYPE param_type_mask, const char* ni_first, const char* ni_end) 
+{
+
+    const char* n_cur = ni_first;
+    // first, check if it precedes with dots
+
+    uint16_t preceding_dot_count=0;
+    while (n_cur < ni_end)
+    {
+        if (*n_cur=='.') {
+            preceding_dot_count++;
+        } else {
+            break;
+        }
+        n_cur++;
+    }
+    
+    // dots must be followed by a parameter name
+    if (n_cur==ni_end) {return NULL;}
+    // traverse up the parent stack until the desired object is found
+
+    if (preceding_dot_count>pstack->count) {
+        char warn_msg[256];
+        snprintf(warn_msg,sizeof(warn_msg), "requested parent depth of %d exceeds actual parent depth of %d", preceding_dot_count, pstack->count);
+        parser->warn_callback(parser, warn_msg, ni_first, ni_end);
+        return NULL;
+    }
+    
+
+    const char* n_first = n_cur;
+    const char* n_end = n_cur; // n_end will equal the next '.' after the parameter name, or if there are no trailing dots it will equal ni_end.
+
+    // if 1, this parameter will be treated as an index into an array
+    char is_indexed_parameter = 0;
+
+    if (*n_first == '[') {
+        is_indexed_parameter=1;
+        // index case, .var[i].something.etc
+        while (n_end < ni_end)
+        {
+            if (*n_end==']') {
+                break;
+            }
+            n_end++;
+        }
+        n_first++; 
+        
+    } else {
+        is_indexed_parameter=0;
+        // typical case. i.e. .var.something.etc
+        
+        while (n_end < ni_end)
+        {
+            if (*n_end == '.' || *n_end == '[') {
+                break;
+            }
+            n_end++;
+        }
+    }
+        
+
+    mustache_param* param;
+    // get the parameter off the parent stack
+    if (preceding_dot_count>0) {
+        if (is_indexed_parameter) {
+            int32_t idx = strtoi32(n_first, n_end-n_first, NULL);
+            param = get_pstack_child_by_index(pstack, preceding_dot_count, idx);
+        } else {
+            param = get_pstack_child_by_name(pstack, preceding_dot_count, n_first, n_end);
+        }
+    } else {
+        param = get_root_child_by_name(proot, n_first, n_end);
+    }
+
+    if (!param) {
+        return NULL;
+    }
+
+    if (n_end != ni_end) {
+        parent_stack_push(parser, pstack, param);
+        param = get_parameter_by_name(parser, proot, pstack, MUSTACHE_PARAM_ALL_BITS, n_first+1, ni_end);
+        parent_stack_pop(pstack);
+    }
+
+    return param;
+};
+
+
+static MUSTACHE_RES create_structure_foreach(mustache_parser* parser, mustache_param* proot, parent_stack* pstack,  structure_foreach* foreach, const char* interior, const char* interior_end) 
+{
+    char warn_msg[256];
+    const char* parameter_first = interior+1; 
+    const char* parameter_end = interior_end;
+    // resolve parameter name ()
+    mustache_param* parameter = get_parameter_by_name(parser, proot, pstack, MUSTACHE_PARAM_OBJECT | MUSTACHE_PARAM_LIST, parameter_first, parameter_end);
+    if (!parameter) {
+        snprintf(warn_msg, sizeof(warn_msg), "parameter '%.*s' could not be resolved.", parameter_end-parameter_first,parameter_first);
+        parser->warn_callback(parser, warn_msg, parameter_first, parameter_end);
+        return MUSTACHE_ERR_NONEXISTENT;
+    }
+
+    foreach->first = interior;
+    foreach->type = STRUCTURE_TYPE_FOREACH;
+    foreach->pNext = NULL;
+    foreach->pLast = NULL;
+
+    return MUSTACHE_SUCCESS;
+}
+
+static MUSTACHE_RES create_structure_vars(mustache_parser* parser, mustache_param* proot, parent_stack* pstack, structure_vars* vars, const char* interior, const char* interior_end) 
+{
+    // get all the variables here, seperated by tabs, spaces, newlines, or carraige returns
+    
+    // get param count
+    uint32_t varcount=1;
+    const char* cur = interior;
+    while (cur < interior_end)
+    {
+        char c = *cur;
+        if (c =='\r'||c=='\n'||c=='\t'||c==' ') {
+            varcount++;        
+        }
+        cur++;
+    }
+
+    mustache_param** varparams = parser->alloc(parser, sizeof(mustache_param*)*varcount + sizeof(PARAM_FLAGS)*varcount);
+    if (!varparams) {
+        return MUSTACHE_ERR_ALLOC;
+    }
+    PARAM_FLAGS* varflags =  ((char*)varparams)+sizeof(mustache_param*)*varcount;
+    memset(varflags, 0, sizeof(PARAM_FLAGS)*varcount);
+
+    // populate params
+    cur = interior;
+    uint32_t i = 0;
+    const char* var_begin = cur;
+    while (cur <= interior_end)
+    {
+        char c = *cur;
+        if (cur == interior_end || cur < interior_end && (c =='\r'||c=='\n'||c=='\t'||c==' ')) {
+            if (*var_begin == '&') {
+                varflags[i] |= PARAM_FLAG_ALLOW_HTML;
+                var_begin++;
+            }
+
+            varparams[i] = get_parameter_by_name(parser,proot,pstack,MUSTACHE_PARAM_ALL_BITS,var_begin,cur);
+            if (!varparams[i]) {
+                char warn_msg[256];
+                snprintf(warn_msg,sizeof(warn_msg), "failed to find parameter '%.*s'", cur-var_begin, var_begin);
+                parser->warn_callback(parser,warn_msg,interior,interior_end);
+            }
+            var_begin=NULL;
+        } else {
+            if (!var_begin) {
+                var_begin=cur;
+            }
+        }
+        cur++;
+    }
+
+
+
+    vars->first = interior;
+    vars->type = STRUCTURE_TYPE_VAR;
+    vars->label_length = interior_end - interior;
+    vars->parameters = varparams;
+    vars->param_flags = varflags;
+    vars->parameter_count = varcount;
+    vars->pLast = NULL;
+    vars->pNext = NULL;
+
+    return MUSTACHE_SUCCESS;
+}
+
+
+
+static MUSTACHE_RES label_to_structure(mustache_parser *parser, mustache_param *proot, parent_stack *pstack, MUSTACHE_TYPE type, const char* stache, const char* label_end, structure** s) 
+{
+    char err_msg[256];
+
+    const char* interior = stache+2;
+    const char* end = label_end-2;
+
+
+    if (type == MUSTACHE_TYPE_CONDITIONAL) {
+        // conditional
+        structure_conditional* conditional = parser->alloc(parser, sizeof(*conditional));
+        if (!conditional) {return MUSTACHE_ERR_ALLOC;}
+
+        // MUSTACHE_RES err = create_structure_conditional(parser, proot, pstack, conditional, interior, end);
+        // if (err) {return err;}
+
+        // *s = (structure*)conditional;
+
+    } else if (type == MUSTACHE_TYPE_NORMAL) {
+        // var, or foreach
+        if (*interior=='#') {
+            if (interior+1==end) {
+                snprintf(err_msg, sizeof(err_msg), "foreach label marker '#' must be followed by a parameter name.");
+                parser->err_callback(parser, err_msg, stache, label_end);
+                return MUSTACHE_ERR_INVALID_TEMPLATE;
+            }
+            structure_foreach* foreach = parser->alloc(parser, sizeof(*foreach));
+            if (!foreach) {return MUSTACHE_ERR_ALLOC;}
+
+            MUSTACHE_RES err = create_structure_foreach(parser, proot, pstack, foreach, interior, end);
+            if (err) {return err;}
+
+            *s = (structure*)foreach;
+        } else {
+            structure_vars* vars = parser->alloc(parser, sizeof(*vars));
+            if (!vars) {return MUSTACHE_ERR_ALLOC;}
+
+            MUSTACHE_RES err = create_structure_vars(parser, proot, pstack, vars, interior, end);
+            if (err) {return err;}
+            *s = (structure*)vars;
+        }
+    }
+
+    return MUSTACHE_SUCCESS;
+}
+
+
+static uint8_t source_to_structured(mustache_parser* parser, mustache_param* proot, parent_stack* pstack, structure* structureRoot, const char* inputFirst, const char* inputHead, const char* inputEnd, structure** last_structure)
+{  
+    char err_msg[256];
+    const char* input_cur = inputFirst;
+    while (input_cur  < inputEnd)
+    {
+        MUSTACHE_TYPE stache_type = is_mustache_open(input_cur, inputFirst, inputEnd);
+        if (stache_type != MUSTACHE_TYPE_NONE) 
+        {
+            const char* stache = input_cur;
+            const char* label_end = get_mustache_label_end(stache, inputEnd);
+            
+            if (stache_type != MUSTACHE_TYPE_SLASH) { // mustache type slash is ignored because mustache brackets preceded by '/' (i.e. '/{{') don't have to have a closing '}}'
+
+                if (!label_end) {
+                    snprintf(err_msg, sizeof(err_msg), "missing closing mustache.");
+                    parser->err_callback(parser, err_msg, stache, inputEnd);
+                    return MUSTACHE_ERR_INVALID_TEMPLATE;
+                }
+
+                if (stache==label_end-4) {
+                    snprintf(err_msg, sizeof(err_msg), "mustache labels cannot be empty.");
+                    parser->err_callback(parser, err_msg, stache, inputEnd);
+                    return MUSTACHE_ERR_INVALID_TEMPLATE;
+                }
+
+                structure* label_structure;
+                MUSTACHE_RES rs = label_to_structure(parser, proot, pstack, stache_type, stache, label_end, &label_structure);
+                if (rs) {
+                    return rs;
+                }
+            }
+        }
+
+
+        input_cur++;
+    }
+
+
     return MUSTACHE_SUCCESS;
 }
 
@@ -1845,540 +1468,12 @@ static uint8_t* mwrite(uint8_t* outputHead, uint8_t* outputEnd, const uint8_t* s
 }
 
 
-void eval_jump(structure* mstruct, const uint8_t* m_name_first, const uint8_t* m_name_end, const uint8_t* input, uint8_t* outputEnd, uint8_t** outputHead, const uint8_t** lastNonEscaped) {
-    if (mstruct->standalone) {
-        const uint8_t* t = input + mstruct->standalone->lineBegin;
-        if (t > *lastNonEscaped) {
-            *outputHead = mwrite(*outputHead, outputEnd, *lastNonEscaped, t);
-        }
-        *lastNonEscaped = input + mstruct->standalone->lineEnd + 1;
-    }
-    else {
-        const uint8_t* t = m_name_first - 3;
-        if (t > *lastNonEscaped) {
-            *outputHead = mwrite(*outputHead, outputEnd, *lastNonEscaped, t);
-        }
-        *lastNonEscaped = m_name_end + strlen("{{");
-    }
-}
-
-static uint32_t get_parent_child_count(mustache_param* parent)
-{
-#ifndef NDEBUG
-    if (parent->type != MUSTACHE_PARAM_OBJECT && parent->type != MUSTACHE_PARAM_LIST) {
-        assert(00 && "get_parent_child_count: parent IS NOT A VALID PARENT.");
-    }
-#endif
-    if (parent->type == MUSTACHE_PARAM_LIST) {
-        mustache_param_list* asList = (mustache_param_list*)parent;
-        return asList->valueCount;
-    }
-    else {
-        uint32_t c = 0;
-        while (parent)
-        {
-            c++;
-            parent = parent->pNext;
-        }
-        return c;
-    }
-}
-
-static mustache_param* get_nth_child(mustache_param* parent, int32_t idx) 
-{
-#ifndef NDEBUG
-    if (parent->type != MUSTACHE_PARAM_OBJECT && parent->type != MUSTACHE_PARAM_LIST) {
-        assert(00 && "get_nth_child: parent IS NOT A VALID PARENT.");
-    }
-#endif
-    uint32_t childCount = get_parent_child_count(parent);
-    if (idx < 0) {
-        idx = childCount +idx;
-    }
-
-    uint32_t i = 0;
-    mustache_param* child = ((mustache_param_object*)parent)->pMembers;
-    while (i!=idx && child && i < childCount)
-    {
-        i++;
-        child = child->pNext;
-    }
-    return child;
-}
-
-
-static mustache_param* resolve_param_member(mustache_param* root, const uint8_t* strFirst, const uint8_t* strEnd)
-{
-#ifndef NDEBUG
-    if (*strFirst != '.' && *strFirst != '[') {
-        assert(00 && "resolve_param_member: strFirst must be a string parameter chain, i.e. '.member.name'");
-    }
-#endif 
-
-    if (strFirst+1 == strEnd) {
-        return root;
-    }
-
-    const uint8_t* cur = strFirst;
-
-    mustache_param* param = root;
-    const uint8_t* lastDot = NULL;
-    while (cur <= strEnd)
-    {
-        if (*cur == '[' && (param->type == MUSTACHE_PARAM_LIST||param->type==MUSTACHE_PARAM_OBJECT)) {
-            const uint8_t* intFirst = cur+1;
-            while (*cur != ']' || cur == strEnd) {
-                cur++;
-            }
-            /* resolve member */
-            const uint8_t* intEnd = cur;
-
-            int32_t index = strtoi32(intFirst, intEnd - intFirst, NULL);
-            mustache_param* child = get_nth_child(root, index);
-            if (!child)
-                return NULL;
-            param = child;
-        }
-        else if ((*cur == '.' && (param->type == MUSTACHE_PARAM_LIST||param->type==MUSTACHE_PARAM_OBJECT)) || cur == strEnd)
-        {    
-            if (lastDot) {
-
-                const uint8_t* nameBegin = lastDot + 1;
-                const uint8_t* nameEnd = cur;
-                uint32_t nameLen = nameEnd - nameBegin;
-
-                uint32_t i;
-                if (param->type == MUSTACHE_PARAM_LIST) {
-                    mustache_param_list* asList = (mustache_param_list*)param;
-                    i = asList->valueCount;
-                }
-                else {
-                    i = UINT32_MAX;
-                }
-                mustache_param_list* p = (mustache_param_list*)param;
-
-                param = ((mustache_param_list*)param)->pValues;
-                while (param && i > 0)
-                {
-                    if (nameLen == param->name.len && strneql(nameBegin, param->name.u, nameLen)) {
-                        break;
-                    }
-                    param = param->pNext;
-                    i--;
-                }
-
-                if (!param) {
-                    return NULL;
-                }
-            }
-            lastDot = cur;
-        }
-        cur++;
-    }
-
-    return param;
-}
 
 uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_const_slice inputBuffer, const uint8_t* inputEnd, structure* structureRoot, 
                          mustache_param* globalParams, parent_stack* parentStack, mustache_parser* parser)
 {
-    structure* mstruct = structureRoot->pNext; /* SKIP ROOT */
-
-    /* INPUT */
-    const uint8_t* inputHead = inputBuffer.u;
-    const uint8_t* input=inputBuffer.u;
-
-    /* OUTPUT */
-    uint8_t* outputHead = outputBuffer.u;
-    uint8_t* outputEnd = outputBuffer.u + outputBuffer.len;
-
-    const uint8_t* lastNonEscaped = inputHead;
-    while (mstruct)
-    {
-        if (mstruct->type == STRUCTURE_TYPE_SKIP_RANGE) {
-            skip_range_structure* asSkipRange = (skip_range_structure*)mstruct;
-            const uint8_t* t = input + asSkipRange->skipFirst;
-            inputHead = t;
-            outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, inputHead);
-            t = input + asSkipRange->skipLast;
-            lastNonEscaped = t;
-        }
-        else if (mstruct->type == STRUCTURE_TYPE_LEN)
-        {
-            const uint8_t* m_len_str_first = input + mstruct->contentsFirst;
-            const uint8_t* m_len_str_end = input + mstruct->contentsEnd;
-
-            len_structure* asLen = (len_structure*)mstruct;
-            const uint8_t* int_begin = input + asLen->interiorFirst;
-            const uint8_t* int_end = input + asLen->interiorEnd;
-
-
-            outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, m_len_str_first - mstruct->precedingMustacheLen);
-
-
-            mustache_param* param_to_eval = asLen->param;
-            if (!asLen->param) {
-                /* HANDLE '.' CASE */
-                if (*int_begin == '.')
-                {
-                    scoped_structure* parent = parent_stack_last(parentStack);
-                    mustache_param* m_child = parent->curChild;
-                    /* resolve '.' or chains '.member.name' */
-                   param_to_eval = resolve_param_member(m_child, int_begin,int_end);
-                } else {
-                    param_to_eval = get_parameter(int_begin, int_end, globalParams, parentStack);
-                }
-            }
-            if (param_to_eval) {
-                #ifndef NDEBUG
-                if(param_to_eval->type != MUSTACHE_PARAM_STRING && param_to_eval->type != MUSTACHE_PARAM_OBJECT && param_to_eval->type != MUSTACHE_PARAM_LIST) {
-                    assert(0&&"write_structured: INVALID PARAMETER TYPE FOR LEN() CALL");
-                }
-                #endif
-
-                if (param_to_eval->type == MUSTACHE_PARAM_STRING) {
-                    mustache_param_string* string = (mustache_param_string*)param_to_eval;
-                    outputHead = u32toa(string->str.len, outputHead, (size_t)(outputEnd - outputHead));
-                    lastNonEscaped = m_len_str_end + strlen("}}");
-                } else {
-                    uint32_t cc = get_parent_child_count(param_to_eval);
-                    outputHead = u32toa(cc, outputHead, (size_t)(outputEnd - outputHead));
-                    lastNonEscaped = m_len_str_end + strlen("}}");
-                }
-            }
-        }
-        else if (mstruct->type == STRUCTURE_TYPE_NESTED_TEMPLATE) {
-            
-            nested_template_structure* asTemplate = (nested_template_structure*)mstruct;
-            const uint8_t* m_name_first = input + mstruct->contentsFirst+(asTemplate->precedingMustacheLen-2);
-            const uint8_t* m_name_end = input + mstruct->contentsEnd;
-
-            outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, m_name_first - mstruct->precedingMustacheLen);
-            lastNonEscaped = m_name_end + strlen("}}");
-
-            if (!asTemplate->param) {
-                mstruct->param = (mustache_param*)get_nested_template_param(m_name_first, m_name_end, globalParams);
-                if (!mstruct->param) {
-                    goto skip_node;
-                }
-            }
-
-            
-            mustache_param_template* template_param = (mustache_param_template*)mstruct->param;
-            
-
-            mustache_stream dummy_stream = {
-                .readCallback = no_op_read_cb,
-                .seekCallback = no_op_seek_cb,
-                .udata=template_param
-            };
-
-            mustache_slice input_slice = {(uint8_t*)template_param->source.u, template_param->source.len};
-            mustache_slice output_slice = {outputHead, outputEnd-outputHead};
-            uint64_t bytesWritten=0;
-
-
-
-
-            uint8_t err = mustache_parse_stream(parser, template_param->parentStackBuffer, &dummy_stream, template_param->structure, template_param->parameters, input_slice, output_slice, &bytesWritten, nested_parse_callback);
-            if (err!=MUSTACHE_SUCCESS) {
-                goto skip_node;
-            }
-
-            uint8_t* parsed_begin = outputHead;
-            outputHead+=bytesWritten;
-            uint8_t* parsed_end = outputHead;
-
-            if (asTemplate->precedingSpaces>0) {
-                apply_spaces_to_source(asTemplate->precedingSpaces, parser, parsed_begin, parsed_end, outputBuffer, &bytesWritten);
-                outputHead+=bytesWritten;
-            }
-        }
-        else if (mstruct->type == STRUCTURE_TYPE_VAR) 
-        {
-            var_structure* asVar = (var_structure*)mstruct;
-            const uint8_t* m_name_first = input + mstruct->contentsFirst;
-            const uint8_t* m_name_end = input + mstruct->contentsEnd;
-            const uint32_t nameLen = m_name_end - m_name_first;
-
-            outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, m_name_first - mstruct->precedingMustacheLen);
-            lastNonEscaped = m_name_end + strlen("{{");
-
-            /* HANDLE '.' CASE */
-            if (*m_name_first == '.')
-            {
-                scoped_structure* parent = parent_stack_last(parentStack);
-                mustache_param* m_child = parent->curChild;
-                /* resolve '.' or chains '.member.name' */
-                mustache_param* member = resolve_param_member(m_child, m_name_first, m_name_end);
-                if (member) {
-                    outputHead = write_variable(member, outputHead, outputEnd, asVar->escapeHTML);
-                }
-            }
-            else if (!mstruct->param) {
-                const uint8_t* m_first_end = m_name_first;
-                while (m_first_end<m_name_end) {
-                    if (*m_first_end == '.' || *m_first_end == '[') {
-                        break;
-                    }
-                    m_first_end++;
-                }
-
-                
-                mstruct->param = get_parameter(m_name_first, m_first_end, globalParams, parentStack);
-                if (!mstruct->param) {
-                    goto skip_node;
-                }
-                if (m_first_end != m_name_end) {
-                    mustache_param* member = resolve_param_member(mstruct->param, m_first_end, m_name_end);
-                    mstruct->param = member;
-                }
-            }
-            if (mstruct->param) {
-                outputHead = write_variable(mstruct->param, outputHead, outputEnd, asVar->escapeHTML);
-            }
-        }
-        else if (mstruct->type == STRUCTURE_TYPE_ELSE)
-        {
-            else_structure* asElse = (else_structure*)mstruct;
-            const uint8_t* m_name_first = input + mstruct->contentsFirst + 1;
-            const uint8_t* m_name_end = input + mstruct->contentsEnd;
-
-            const uint8_t* interiorBegin = input + asElse->interiorBegin;
-            const uint8_t* interiorEnd = input + asElse->contentsEnd;
-
-
-            scoped_structure* parentAsScoped = (scoped_structure*)asElse->parent;
-
-            if (!parentAsScoped->renderedLastEvaluation)
-            {
-                if (mstruct->standalone) {
-                    const uint8_t* t = input + mstruct->standalone->lineBegin;
-                    outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
-                    lastNonEscaped = input + mstruct->standalone->lineEnd + strlen("\n");
-                }
-                else {
-                    const uint8_t* t = m_name_first - strlen("{{x");
-                    outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
-                    lastNonEscaped = m_name_end + strlen("{{");
-                }
-            }
-            else {
-                uint32_t nameLen = m_name_end - m_name_first;
-                const uint8_t* t;
-                if (mstruct->standalone) {
-                    t = input + mstruct->standalone->lineBegin;
-                }
-                else {
-                    t = m_name_first - strlen("{{x");
-                }
-                outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
-                lastNonEscaped = input + asElse->close->contentsEnd + strlen("}}");
-
-                mstruct = (structure*)asElse->close;
-                goto skip_node_no_advance;
-            }
-        }
-        else if (mstruct->type == STRUCTURE_TYPE_SCOPED_CARET || mstruct->type == STRUCTURE_TYPE_SCOPED_POUND) {
-            scoped_structure* asScoped = (scoped_structure*)mstruct;
-        
-            const uint8_t* m_name_first = input + mstruct->contentsFirst+1;
-            const uint8_t* m_name_end = input + mstruct->contentsEnd;
-
-            if (!mstruct->param) {
-
-                const uint8_t* m_first_end = m_name_first;
-                while (m_first_end < m_name_end) {
-                    if (*m_first_end == '.' || *m_first_end == '[') {
-                        break;
-                    }
-                    m_first_end++;
-                }
-
-                
-                mstruct->param = get_parameter(m_name_first, m_first_end, globalParams, parentStack);
-                if (!mstruct->param) {
-                    goto skip_node;
-                }
-
-                if (m_first_end != m_name_end) {
-                    mstruct->param = resolve_param_member(mstruct->param, m_first_end, m_name_end);
-                }
-            }
-
-            asScoped->curIdx = 0;
-            
-            if (mstruct->type == STRUCTURE_TYPE_SCOPED_POUND && mstruct->param && is_parent(mstruct->param))
-            {
-                parent_stack_push(parentStack, asScoped);
-
-                mustache_param_object* pAsObj = (mustache_param_object*)asScoped->param;
-                asScoped->curChild = pAsObj->pMembers;
-
-                if (mstruct->standalone) {
-                    const uint8_t* t = input + mstruct->standalone->lineBegin;
-                    outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
-                    lastNonEscaped = input + mstruct->standalone->lineEnd + strlen("\n");
-                }
-                else {
-                    const uint8_t* t = m_name_first - strlen("{{x");
-                    outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
-                    lastNonEscaped = m_name_end + strlen("{{");
-                }
-            }
-            else if (mstruct->type == STRUCTURE_TYPE_SCOPED_POUND || mstruct->type==STRUCTURE_TYPE_SCOPED_CARET) 
-            {
-                
-                scoped_structure* asScoped = (scoped_structure*)mstruct;
-               
-                if (!asScoped->wasEvaluated) {
-                    bool truthy = is_truthy(mstruct->param);
-                    asScoped->renderedLastEvaluation = (mstruct->type == STRUCTURE_TYPE_SCOPED_POUND && truthy) || (mstruct->type == STRUCTURE_TYPE_SCOPED_CARET && !truthy);
-                    asScoped->wasEvaluated = true;
-                }
-                if (asScoped->renderedLastEvaluation)
-                {
-                    if (mstruct->standalone) {
-                        const uint8_t* t = input + mstruct->standalone->lineBegin;
-                        outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
-                        lastNonEscaped = input + mstruct->standalone->lineEnd + strlen("\n");
-                    }
-                    else {
-                        const uint8_t* t = m_name_first - strlen("{{x");
-                        outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
-                        lastNonEscaped = m_name_end + strlen("{{");
-                    }
-                }
-                else {
-                    uint32_t nameLen = m_name_end - m_name_first;
-                    const uint8_t* t;
-                    if (mstruct->standalone) {
-                        t = input + mstruct->standalone->lineBegin;
-                    } else {
-                        t = m_name_first - strlen("{{x");
-                    }
-                    outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, t);
-                    lastNonEscaped = input + asScoped->interiorEnd+nameLen+strlen("{{x}}");
-
-                    mstruct = asScoped->close_or_else;
-                    goto skip_node_no_advance;
-                }
-            }
-        }
-        else if (mstruct->type == STRUCTURE_TYPE_COMMENT || mstruct->type == STRUCTURE_TYPE_CLOSE) 
-        {
-            const uint8_t* m_name_first = input + mstruct->contentsFirst+1;
-            const uint8_t* m_name_end = input + mstruct->contentsEnd;
-
-            if (mstruct->type == STRUCTURE_TYPE_CLOSE)
-            {
-                close_structure* asClose = (close_structure*)mstruct;
-
-                if (!mstruct->param) {
-                    mstruct->param = asClose->parent->param;
-                }
-
-                if (!asClose->parent) {
-                    return MUSTACHE_ERR_INVALID_TEMPLATE;
-                }
-
-                scoped_structure* parent = asClose->parent;
-
-                if (parent->type!=STRUCTURE_TYPE_ELSE && parent->param) {
-                    if (parent->param->type == MUSTACHE_PARAM_LIST)
-                    {
-                        mustache_param_list* param = (mustache_param_list*)parent->param;
-                        parent->curIdx++;
-                        parent->curChild = parent->curChild->pNext;
-                        if (parent->curIdx < param->valueCount && parent->curChild)
-                        {
-                            eval_jump(mstruct, m_name_first, m_name_end, input, outputEnd, &outputHead, &lastNonEscaped);
-
-                            /* go to parent next again */
-                            mstruct = (structure*)parent;
-                            eval_jump(mstruct, m_name_first, m_name_end, input, outputEnd, &outputHead, &lastNonEscaped);
-                            goto skip_node;
-                        }
-                        else if (mstruct->param && is_parent(mstruct->param)) {
-                            parent_stack_pop(parentStack);
-                        }
-                    }
-                }
-            }
-
-            eval_jump(mstruct, m_name_first, m_name_end, input, outputEnd, &outputHead, &lastNonEscaped);
-        }
-
-    skip_node:
-        mstruct = mstruct->pNext;
-    skip_node_no_advance:
-        mstruct = mstruct;
-    }
-
-
-    outputHead = mwrite(outputHead, outputEnd, lastNonEscaped, inputEnd);
-    *oh = outputHead;
+    
     return MUSTACHE_SUCCESS;
-}
-
-void mustache_structure_chain_free(mustache_parser* p, mustache_structure* structure_chain)
-{
-    structure* root = (structure*)structure_chain;
-    root = root->pNext;
-    while (root)
-    {
-        structure* next = root->pNext;
-        if (root->type == STRUCTURE_TYPE_ELSE) {
-            else_structure* as = (else_structure*)root;
-            if (as->standalone) {
-                p->free(p,as->standalone);
-            }
-        }
-        else if (root->type == STRUCTURE_TYPE_VAR) {
-            var_structure* as = (var_structure*)root;
-            if (as->standalone) {
-                p->free(p,as->standalone);
-            }
-        }
-        else if (root->type == STRUCTURE_TYPE_CLOSE) {
-            close_structure* as = (close_structure*)root;
-            if (as->standalone) {
-                p->free(p,as->standalone);
-            }
-        }
-        else if (root->type == STRUCTURE_TYPE_SCOPED_CARET) {
-            scoped_structure* as = (scoped_structure*)root;
-            if (as->standalone) {
-                p->free(p,as->standalone);
-            }
-        }
-        else if (root->type == STRUCTURE_TYPE_SCOPED_POUND) {
-            scoped_structure* as = (scoped_structure*)root;
-            if (as->standalone) {
-                p->free(p,as->standalone);
-            }
-        }
-        
-        p->free(p,root);
-        root = next;
-    }
-
-    memset(structure_chain, 0, sizeof(*structure_chain));
-}
-
-void mustache_structure_chain_flush(mustache_structure* structure_chain)
-{
-    structure* root = (structure*)structure_chain;
-    root = root->pNext;
-    while (root)
-    {
-        if (root->type == STRUCTURE_TYPE_SCOPED_CARET || root->type == STRUCTURE_TYPE_SCOPED_POUND)
-        {
-            scoped_structure* asScoped = (scoped_structure*)root;
-        }
-        root->param = NULL;
-        root = root->pNext;
-    }
 }
 
 char mustache_get_stream_range(int32_t input_buffer_len, const char** first, const char** end, const char* src_first, const char* src_end) {
@@ -2390,7 +1485,6 @@ char mustache_get_stream_range(int32_t input_buffer_len, const char** first, con
     // get first '{{'
     const char* scur = src_first;
     int32_t depth = 0;
-    int32_t dist;
 
     const char* tmpo=NULL;
     const char* tmpc=NULL;
@@ -2398,20 +1492,22 @@ char mustache_get_stream_range(int32_t input_buffer_len, const char** first, con
     {
         if (scur!=src_end-2) {
             if (scur[0]=='{'&&scur[1]=='{') {
-                depth++;
-                dist=0;
-                tmpo=scur;
-                // move cursor to closing '{{'
-                if (scur<src_end+3 && (scur[2]=='#' || scur[2]=='^')) {
-                    while (scur < src_end-2)
-                    {
-                        if (scur[0]=='}'&&scur[1]=='}') {
-                            break;
-                        }
-                        scur++;
-                    }                
+                if (src_end+3 && scur[2] =='/') {
+                    depth--;
+                    scur++;
                 } else {
-                    scur+=1;
+                    depth++;
+                    if (!tmpo) {
+                        tmpo=scur;
+                    }
+                    if (scur<src_end+3 && (scur[2]=='#' || scur[2]=='^')) {
+                        depth+=2; 
+                        scur++;          
+                    } else if (scur[-1] =='/' && scur != src_first) {
+                        depth--;
+                    } else {
+                        scur++;
+                    }
                 }
             }
             if (depth > 0 && scur < src_end-3) {
@@ -2424,7 +1520,7 @@ char mustache_get_stream_range(int32_t input_buffer_len, const char** first, con
                             *end = tmpo-1;
                             break;
                         }
-                        *end = scur;
+                        *end = tmpc+2;
                     }
                 }
             }
@@ -2435,12 +1531,11 @@ char mustache_get_stream_range(int32_t input_buffer_len, const char** first, con
 
     // get last '}}'
 
-    // returns -1 if it was unable to find any complete stache ranges
-    if (!tmpc && depth > 0) {
-        return -1;
-    }
     if (depth>0) {
-        *end = tmpc;
+        if (!tmpc && tmpo) {
+            *end = tmpo-1;
+            return 0;
+        }
     } else {
         *end = src_end;
     }
@@ -2453,6 +1548,14 @@ char mustache_get_stream_range(int32_t input_buffer_len, const char** first, con
     #endif
     return 0;
 }
+
+void mustache_dummy_err_callback(mustache_parser* parser, char err_msg[256], const char* src, const char* src_end) {
+    (void)parser;
+    (void)err_msg;
+    (void)src;
+    (void)src_end;
+}
+
 
 
 
@@ -2490,6 +1593,13 @@ uint8_t mustache_parse_file(mustache_parser* parser, mustache_slice parentStackB
 uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStackBuffer, mustache_stream* stream, mustache_structure* structChain,
     mustache_param* params, mustache_slice inputBuffer, mustache_slice outputBuffer, void* parseCallbackUdata, mustache_parse_callback parseCallback)
 {
+    if (!parser->err_callback) {
+        parser->err_callback = mustache_dummy_err_callback;
+    }
+    if (!parser->warn_callback) {
+        parser->warn_callback = mustache_dummy_err_callback;
+    }
+
     const uint8_t* inputHead = inputBuffer.u;
     const uint8_t* inputBeg = inputBuffer.u;
 
@@ -2518,6 +1628,7 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStac
             return MUSTACHE_ERR_NO_SPACE;
         }
         if (readBytes==0) {
+            printf("BREAK");
             break;
         }
         
@@ -2538,7 +1649,7 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStac
         structure* laststruct=NULL;
         MUSTACHE_RES err;
         if (!lastRoot->pNext) {
-            err = source_to_structured(parser, (structure*)lastRoot, inputBuffer.u, inputHead, inputEnd, &laststruct);
+            err = source_to_structured(parser, params, &parentStack, (structure*)lastRoot, inputBuffer.u, inputHead, inputEnd, &laststruct);
             if (err) {
                 return err;
             }
@@ -2547,30 +1658,17 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStac
             if (!root) {
                 return MUSTACHE_ERR_ALLOC;
             }
+            root->type = STRUCTURE_TYPE_ROOT;
             lastRoot->pNextRoot = (structure*)root;
         }
-        else {
-            /* RESET EVAL STATE ON EXISTING STRUCTURE  CHAIN */
-            structure* root = (structure*)lastRoot;
-            root = root->pNext;
-            while (root)
-            {
-                if (root->type == STRUCTURE_TYPE_SCOPED_CARET || root->type == STRUCTURE_TYPE_SCOPED_POUND)
-                {
-                    scoped_structure* asScoped = (scoped_structure*)root;
-                    asScoped->wasEvaluated = false;
-                }
-                root = root->pNext;
-            }
-        }
 
-        err = write_structured(
-            outputBuffer, &outputHead,
-            (mustache_const_slice){ inputBuffer.u,inputBuffer.len },
-            inputBuffer.u + readBytes,
-            (structure*)lastRoot, params, &parentStack,
-            parser
-        );
+        // err = write_structured(
+        //     outputBuffer, &outputHead,
+        //     (mustache_const_slice){ inputBuffer.u,inputBuffer.len },
+        //     inputBuffer.u + readBytes,
+        //     (structure*)lastRoot, params, &parentStack,
+        //     parser
+        // );
 
         if (err) {
             return err;
@@ -2790,6 +1888,20 @@ static void JSON_number_to_mustache_number(mustache_param_number* param, const u
 
 /* FORWARD DECLARATION */
 static uint8_t JSON_parse_object(mustache_parser* parser, mustache_param_object** objOut, const uint8_t** inputHead, const uint8_t* openingBracket, const uint8_t* sourceEnd, bool deepCopy);
+
+
+static const uint8_t* get_key_value_end(const uint8_t* start, const uint8_t* sourceEnd)
+{
+    while (start < sourceEnd)
+    {
+        if (isspace(*start) || *start == '}') {
+            return start;
+        }
+        start++;
+    }
+    return sourceEnd;
+}
+
 
 static uint8_t JSON_parse_key(mustache_parser* parser, mustache_param** paramOut, const uint8_t** inputHead, 
     mustache_const_slice key_name, const uint8_t* keyEnd, const uint8_t* sourceEnd, bool deepCopy)

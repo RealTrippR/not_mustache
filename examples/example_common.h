@@ -104,6 +104,27 @@ void dummy_write_parsed_data_callback(mustache_parser* parser, void* udata, must
 }
 
 
+
+void parser_err_callback(mustache_parser* err, char msg[256], const char* src, const char* src_end) {
+    printf("\nPARSER ERROR\n============\n%s\n", msg);
+    if (src) {
+        size_t len = (src_end-src < 32) ?  src_end-src : 32;
+        printf("LINE+32: %.*\n", len, src);
+    }
+}
+
+
+
+void parser_warn_callback(mustache_parser* err, char msg[256], const char* src, const char* src_end) {
+    printf("\nPARSER WARNING\n============\n%s\n", msg);
+    if (src) {
+    size_t len = (src_end-src < 32) ?  src_end-src : 32;
+        printf("LINE+32: %.*\n", len, src);
+    }
+}
+
+
+
 /*
 parses a template source and stores it in a dynamically allocated buffer.
 
@@ -124,6 +145,9 @@ MUSTACHE_RES parse_template(const char* template_source, char** parsed_template,
 
     parser_stream.readCallback = stream_read_callback;
     parser_stream.seekCallback = stream_seek_callback;
+    parser.err_callback = parser_err_callback;
+    parser.warn_callback = parser_warn_callback;
+
 
     *parsed_template = NULL;
 
@@ -174,7 +198,6 @@ void write_parsed_data_callback(mustache_parser* parser, void* __udata, mustache
 
 
 
-
 size_t segmented_stream_read_callback(void* u, uint8_t* dst, size_t dstlen) {
     stream_udata* udata = u;
 
@@ -190,7 +213,7 @@ size_t segmented_stream_read_callback(void* u, uint8_t* dst, size_t dstlen) {
         return 0;
     }
 
-    size_t cpylen = f-e;
+    size_t cpylen = e-f;
     if (cpylen > dstlen) {
         cpylen = dstlen;
     }
@@ -242,7 +265,8 @@ MUSTACHE_RES parse_template_segmented(const char* template_source, char** parsed
 
     parser_stream.readCallback = segmented_stream_read_callback;
     parser_stream.seekCallback = segmented_stream_seek_callback;
-
+    parser.err_callback = parser_err_callback;
+    parser.warn_callback = parser_warn_callback;
 
     *parsed_template = NULL;
 
@@ -280,7 +304,7 @@ MUSTACHE_RES parse_template_segmented(const char* template_source, char** parsed
 
 MUSTACHE_RES free_template(char* parsed_template)
 {
-    mustache_structure_chain_free(&parser, &struct_chain);
+    //mustache_structure_chain_free(&parser, &struct_chain);
     free(parsed_template);
     return MUSTACHE_SUCCESS;
 }

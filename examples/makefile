@@ -27,12 +27,15 @@ engine_usage: engine_usage.c example_common.h 		$(NM_DIR)/src/not_mustache.c $(N
 parse: parse.c example_common.h 		$(NM_DIR)/src/not_mustache.c $(NMI_DIR)/not_mustache.h
 	gcc $(GEN_FLAGS) $(INCL) $(DEPS) parse.c -o $(BDIR)/parse.exe
 
+conditionals: conditionals.c example_common.h 		$(NM_DIR)/src/not_mustache.c $(NMI_DIR)/not_mustache.h
+	gcc $(GEN_FLAGS) $(INCL) $(DEPS) conditionals.c -o $(BDIR)/conditionals.exe
 
 
 
 
 ../bin/not_mustache.o: $(NM_DIR)/src/not_mustache.c $(NMI_DIR)not_mustache.h
 	gcc  $(GEN_FLAGS) $(INCL) $(DEPS_SRC) $(NMI_DIR)/src/not_mustache.c -c -o ../bin/not_mustache.o
+
 
 
 clean:

@@ -41,6 +41,18 @@
                 "$gcc"
             ],
         },
+         {
+            "label": "build_ex_conditionals",
+            "type": "shell",
+            "command": "make conditionals",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}/examples"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+        },
         {
             "label": "build_ex_engine_usage",
             "type": "shell",

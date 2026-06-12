@@ -19,37 +19,16 @@ const char* TEMPLATE =
 "&obj_as_str\n"
 "len(str)\n"
 "}}\n"
-"and conditionals: {(str)}\n"
-"   str is a variable!\n"
+"and conditionals: {()}\n"
 "{{/}}";
+
 
 
 #include "example_common.h"
 
-
-
 int main() 
 {
     MUSTACHE_RES res = 0;
-
-    MPARAM_CSTR(str1, "", NULL,  "Am");
-    MPARAM_CSTR(str2, "", &str1, "I");
-    MPARAM_CSTR(str3, "", &str2, "Therefore");
-    MPARAM_CSTR(str4, "", &str3, "Think");
-    MPARAM_CSTR(str5, "", &str4, "I");
-
-
-    MPARAM_OBJECT(objvar, "obj", NULL, &str5);
-    MPARAM_CSTR(strvar, "str", &objvar, "Hello World.");
-    MPARAM_LIST(listvar, "list", &strvar, 5, &str5);
-
-
-    void *pstrbuf=NULL;
-
-    MPARAM_STR(objvar_astr, "obj_as_str", &listvar, MPARAM_TO_STR_C_ALLOC(&pstrbuf, &objvar));
-    MPARAM_STR(strvar_astr, "str_as_str", &objvar_astr, MPARAM_TO_STR_C_ALLOC(&pstrbuf, &strvar));
-    MPARAM_STR(listvar_astr, "list_as_str", &strvar_astr, MPARAM_TO_STR_C_ALLOC(&pstrbuf, &listvar));
-
 
     char* parsed_template = NULL;
     size_t parsed_template_len;

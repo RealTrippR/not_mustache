@@ -74,13 +74,14 @@ typedef enum {
 
 
 typedef enum {
-    MUSTACHE_PARAM_NONE,
-    MUSTACHE_PARAM_BOOLEAN,
-    MUSTACHE_PARAM_NUMBER,
-    MUSTACHE_PARAM_STRING,
-    MUSTACHE_PARAM_LIST,
-    MUSTACHE_PARAM_OBJECT,
-    MUSTACHE_PARAM_TEMPLATE
+    MUSTACHE_PARAM_NONE=0,
+    MUSTACHE_PARAM_BOOLEAN=1,
+    MUSTACHE_PARAM_NUMBER=2,
+    MUSTACHE_PARAM_STRING=4,
+    MUSTACHE_PARAM_LIST=8,
+    MUSTACHE_PARAM_OBJECT=16,
+    MUSTACHE_PARAM_TEMPLATE=32,
+    MUSTACHE_PARAM_ALL_BITS = 0x1F
 } MUSTACHE_PARAM_TYPE;
 
 /* ===== STRUCTURE FORWARD DECLARATIONS */
@@ -107,6 +108,7 @@ typedef void* (*mustache_alloc)(mustache_parser* parser, size_t bytes);
 
 typedef void (*mustache_free)(mustache_parser* parser, void* block);
 
+typedef void (*mustache_err_callback)(mustache_parser* parser, char err_msg[256], const char* src, const char* src_end);
 
 /* ====== STRUCTURE TYPES ====== */
 
@@ -128,7 +130,9 @@ typedef struct mustache_parser
     void* userData;
     mustache_alloc alloc;
     mustache_free  free;
-    
+    mustache_err_callback err_callback;
+    mustache_err_callback warn_callback;
+
     uint8_t spacesPerTab;
 } mustache_parser;
 
@@ -191,8 +195,11 @@ typedef struct {
 } mustache_param_template;
 
 
-
-
+/*
+The mustache_stream is interface structure for parsers to read from an input source.
+Note that streams are deterministic - if the behavior of a stream changes, 
+the mustache_structure chain built with it must be destroyed.
+*/
 typedef struct mustache_stream
 {
     void* udata;
@@ -266,6 +273,11 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStac
 
 -+- Destroys a structure chain, calling parser->free for every node in the list. -+-
 
+This must be called when:
+- a structure chain is no longer needed
+- the contents of the template source used to build it have changed
+- the stream used in building it has changed
+
 @param mustache_parser* parser
 @param mustache_structure* structure_chain
 
@@ -290,12 +302,28 @@ void mustache_structure_chain_free(mustache_parser* parser, mustache_structure* 
 void mustache_structure_chain_flush(mustache_structure* structure_chain);
 
 
+
 /*****
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
-@param const char** first
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+*****/
+mustache_param* mustache_parameter_get_child_list(mustache_param* param, uint32_t* max_child_count);
+
+
+/*****
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 *****/
 char mustache_get_stream_range(int32_t input_buffer_len, const char** first, const char** end, const char* src_first, const char* src_end);
+
+
+/*****
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+*****/
+void mustache_dummy_err_callback(mustache_parser* parser, char err_msg[256],const char* src,const char* src_end);
+
+
 
 /*****
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
