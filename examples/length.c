@@ -15,13 +15,18 @@ const char* TEMPLATE =
 "evaluates as {{len(str)}}\n"
 "\n"
 "not_mustache also allows for multiple variables to be enclosed, like so:"
-"{{\n"
+"/{{\n"
 "&obj_as_str\n"
 "len(str)\n"
 "}}\n"
-"and conditionals: {(str)}\n"
-"   str is a variable!\n"
-"{{/}}";
+"\n"
+"{{\n"
+"&obj_as_str\n"
+"len(str)\n"
+"}}\n";
+// "and conditionals: {(str)}\n"
+// "   str is a variable!\n"
+// "{{/}}";
 
 
 #include "example_common.h"

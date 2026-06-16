@@ -57,11 +57,25 @@ typedef enum {
     MUSTACHE_TYPE_COMMENT
 } MUSTACHE_TYPE;
 
+typedef enum {
+    SCOPED_TYPE_NONE,
+    SCOPED_TYPE_HEADER,
+    SCOPED_TYPE_ELSEIF,
+    SCOPED_TYPE_ELSE
+} SCOPED_TYPE;
+
+typedef enum {
+    FUNCTION_TYPE_NONE = 0,
+    FUNCTION_TYPE_LEN
+} FUNCTION_TYPE;
+
 typedef struct {
     mustache_slice buf;
     uint32_t count;
     uint32_t MAX_COUNT;
 } parent_stack;
+
+
 
 static void* parent_stack_get_last(parent_stack *pstack) {
     if (pstack->count) {
@@ -84,6 +98,15 @@ static MUSTACHE_RES parent_stack_push(mustache_parser *parser, parent_stack *pst
 
 static void parent_stack_pop(parent_stack *pstack) {
     pstack->count--;
+}
+
+
+// returns 1 if c is a valid character of a parameter name, 0 if not
+static char is_parameter_name_character(char c) {
+    if ((c>='a'&&c<='z')||(c>='0'&&c<='9')||(c>='A'&&c<='Z')||c=='_'||c=='-') {
+        return 1;
+    }
+    return 0;
 }
 
 static mustache_param* get_pstack_child_by_index(parent_stack *pstack, uint32_t dotcount, int32_t idx)
@@ -118,7 +141,8 @@ static mustache_param* get_pstack_child_by_name(parent_stack *pstack,  uint32_t 
     uint32_t i = 0;
     while (child && i < max_children)
     {
-        if (strneql(child->name.u, name, min(child->name.len, name_end-name))) {
+        size_t target_name_len  =name_end-name;
+        if (child->name.len == target_name_len && strneql(child->name.u, name, target_name_len)) {
             return child;
         }
         ++i;
@@ -134,7 +158,9 @@ static mustache_param* get_root_child_by_name(mustache_param* root, const char* 
 
     while (child)
     {
-        if (strneql(child->name.u, name, min(child->name.len, name_end-name))) {
+        size_t target_name_len  =name_end-name;
+
+        if (child->name.len == target_name_len && strneql(child->name.u, name, target_name_len)) {
             return child;
         }
         child = child->pNext;
@@ -147,6 +173,8 @@ typedef enum
     STRUCTURE_TYPE_VAR = 0,
     STRUCTURE_TYPE_FOREACH = 1,
     STRUCTURE_TYPE_CONDITIONAL = 2,
+    STRUCTURE_TYPE_ESCAPE = 3, // NOTE: this just points to the "/{{" used to escape mustache brackets.
+                                // this needs to be recorded so that the '/' preceding the brackets can be removed in the parsing stage
     STRUCTURE_TYPE_ROOT
 } STRUCTURE_TYPE;
 
@@ -166,6 +194,7 @@ typedef struct structure {
     structure* pNext;
     structure* pLast;
     STRUCTURE_TYPE type;
+    const char* first; // ptr to the label
 } structure;
 
 typedef struct {
@@ -187,22 +216,31 @@ typedef struct conditional {
 
 
 typedef enum {
-    PARAM_FLAG_ALLOW_HTML = 0x1
+    PARAM_FLAG_ALLOW_HTML = 0x1,
+    PARAM_FLAG_FUNCTION = 0x80,
+    PARAM_FLAG_FUNCTION_LEN = 0x2 | PARAM_FLAG_FUNCTION
 } PARAM_FLAGS_ENUM;
 
-typedef uint8_t PARAM_FLAGS;
+typedef uint16_t PARAM_FLAGS;
+
+typedef struct {
+    const char* first; // note that this slice (first : end) includes the entire variable - if it has a function flag, it includes the name of the function, 
+                       // i.e. the slice (first:end) would be "len(my_var)", "&my_var",etc
+    const char* end;
+    PARAM_FLAGS flags;
+} structure_parameter_info;
+
 typedef struct structure_var {
     structure* pNext;
     structure* pLast;
     STRUCTURE_TYPE type;
-
     const char* first; // ptr to the label
     uint16_t label_length; // the length of the label (opening mustache line), = len("{{#name}}")
 
     uint16_t parameter_count;
     mustache_param** parameters;
 
-    PARAM_FLAGS* param_flags;
+    structure_parameter_info* param_infos;
 } structure_vars;
 typedef struct structure_foreach {
     structure* pNext;
@@ -214,7 +252,10 @@ typedef struct structure_foreach {
     uint32_t content_length; // the length of the interior content [beginning at the first char after the label, and ending the at the first char before the end_label]
     uint32_t end_label_length; // the length of the end label (closing mustache line), = len("{{/}}"
 
+    structure* children; // child structures
+
     mustache_param* param; // the parent object to search in the foreach loop
+
 } structure_foreach;
 
 typedef struct structure_conditional {
@@ -227,6 +268,9 @@ typedef struct structure_conditional {
     uint32_t content_length; // the length of the interior content [beginning at the first char after the label, and ending the at the first char before the end_label]
     uint32_t end_label_length; // the length of the end label (closing mustache line), = len("{{/}}"
     
+    structure* children; // child structures
+
+
     uint16_t conditional_count;
     conditional* conditionals;
 } structure_conditional;
@@ -796,7 +840,7 @@ static double n_pow10(uint16_t n) {
 }
 
 /* converts an i64 to a NON null-terminated ASCII string and returns the number of digits written. */
-static int16_t i64toa(int64_t n,uint8_t* buf, size_t size)
+static int16_t i64toa(int64_t n,uint8_t* buf)
 {
     int8_t dig = digits_i64(n);
     int16_t i = 0;
@@ -926,7 +970,7 @@ static uint8_t* dtoa(double value, uint8_t* buf, size_t size, uint16_t precision
     double frac_part = value - (double)int_part;
 
     /* Write integer part */
-    int written = i64toa(int_part, buf, size);
+    int written = i64toa(int_part, buf);
     if (written < 0 || written >= (int)size) return buf;
 
     buf += written;
@@ -1157,6 +1201,17 @@ static uint8_t* write_variable(mustache_param* paramBASE, uint8_t* outputHead, u
 }
 
 
+static SCOPED_TYPE is_mustache_label_scoped(const char* stache, const char* stache_end)
+{
+    const char* interior = stache+2;
+
+    if (stache[1] == '(' && stache[2] == '#') {
+        return SCOPED_TYPE_HEADER;
+    }
+
+    return SCOPED_TYPE_NONE;
+}
+
 static MUSTACHE_TYPE is_mustache_open(const char* stache, const char* first, const char* end) {
     if (stache!=first && stache+2 < end && stache[-1] == '/' &&stache[0]=='{'&&(stache[1]=='{' || stache[1]=='(')) {
         return MUSTACHE_TYPE_SLASH;
@@ -1266,7 +1321,7 @@ mustache_param* get_parameter_by_name(mustache_parser* parser, mustache_param* p
         return NULL;
     }
 
-    if (n_end != ni_end) {
+    if (*ni_first == '.') {
         parent_stack_push(parser, pstack, param);
         param = get_parameter_by_name(parser, proot, pstack, MUSTACHE_PARAM_ALL_BITS, n_first+1, ni_end);
         parent_stack_pop(pstack);
@@ -1275,8 +1330,48 @@ mustache_param* get_parameter_by_name(mustache_parser* parser, mustache_param* p
     return param;
 };
 
+static void scoped_label_get_end(const char* parameter_name, const char* parameter_name_end, const char* label_end, const char* src_end, const char **closing_label_begin, const char** closing_label_end)
+{
+    *closing_label_begin=NULL;
+    *closing_label_end=NULL;
 
-static MUSTACHE_RES create_structure_foreach(mustache_parser* parser, mustache_param* proot, parent_stack* pstack,  structure_foreach* foreach, const char* interior, const char* interior_end) 
+    uint32_t depth = 1;
+
+    const char* cur = label_end;
+    while (cur < src_end)
+    {
+        MUSTACHE_TYPE type = is_mustache_open(cur, label_end, src_end);
+
+        if (type == MUSTACHE_TYPE_NORMAL) 
+        {
+            const char* lend = get_mustache_label_end(cur, src_end);
+            
+            SCOPED_TYPE stype = is_mustache_label_scoped(cur, src_end);
+            if (stype==SCOPED_TYPE_HEADER) {
+                depth++;
+            }
+
+            if (lend && cur[2]=='/') {
+                // closing stache
+                const char* stache_end = get_mustache_label_end(cur, src_end);
+                if (stache_end) {
+                    depth--;
+                    if (depth==0) {
+                        *closing_label_begin = cur;
+                        *closing_label_end = stache_end;
+                        return;
+                    }
+                }
+            }
+            cur = lend-1;
+        }
+        cur++;
+    }
+    
+}
+
+
+static MUSTACHE_RES create_structure_foreach(mustache_parser* parser, mustache_param* proot, parent_stack* pstack,  structure_foreach* foreach, const char* label, const char* label_end, const char* interior, const char* interior_end, const char* src_end) 
 {
     char warn_msg[256];
     const char* parameter_first = interior+1; 
@@ -1289,7 +1384,14 @@ static MUSTACHE_RES create_structure_foreach(mustache_parser* parser, mustache_p
         return MUSTACHE_ERR_NONEXISTENT;
     }
 
-    foreach->first = interior;
+
+    const char *scoped_label;
+    const char *scoped_end;
+    scoped_label_get_end(interior, interior_end, label_end, src_end, &scoped_label, &scoped_end);
+
+
+
+    foreach->first = label;
     foreach->type = STRUCTURE_TYPE_FOREACH;
     foreach->pNext = NULL;
     foreach->pLast = NULL;
@@ -1297,64 +1399,132 @@ static MUSTACHE_RES create_structure_foreach(mustache_parser* parser, mustache_p
     return MUSTACHE_SUCCESS;
 }
 
+FUNCTION_TYPE is_slice_function(const char* begin, const char* end, const char** function_interior_begin, const char** function_interior_end)
+{
+    if (strneql(begin, "len(", min(end-begin,strlen("len(")))) 
+    {
+        *function_interior_begin = begin+strlen("len(");
+        // look for ')'
+        const char* cur = begin;
+        while (cur < end) 
+        {
+            if (*cur == ')') 
+            {
+                *function_interior_end = cur;
+                return FUNCTION_TYPE_LEN;
+            }   
+            cur++;
+        }
+    }
+
+    return FUNCTION_TYPE_NONE;
+}
+
 static MUSTACHE_RES create_structure_vars(mustache_parser* parser, mustache_param* proot, parent_stack* pstack, structure_vars* vars, const char* interior, const char* interior_end) 
 {
     // get all the variables here, seperated by tabs, spaces, newlines, or carraige returns
     
     // get param count
-    uint32_t varcount=1;
+    uint32_t varcount=0;
     const char* cur = interior;
-    while (cur < interior_end)
-    {
-        char c = *cur;
-        if (c =='\r'||c=='\n'||c=='\t'||c==' ') {
-            varcount++;        
-        }
-        cur++;
-    }
-
-    mustache_param** varparams = parser->alloc(parser, sizeof(mustache_param*)*varcount + sizeof(PARAM_FLAGS)*varcount);
-    if (!varparams) {
-        return MUSTACHE_ERR_ALLOC;
-    }
-    PARAM_FLAGS* varflags =  ((char*)varparams)+sizeof(mustache_param*)*varcount;
-    memset(varflags, 0, sizeof(PARAM_FLAGS)*varcount);
-
-    // populate params
-    cur = interior;
-    uint32_t i = 0;
-    const char* var_begin = cur;
+    char last_c = *cur;
+    const char* var_begin = NULL;
     while (cur <= interior_end)
     {
         char c = *cur;
-        if (cur == interior_end || cur < interior_end && (c =='\r'||c=='\n'||c=='\t'||c==' ')) {
-            if (*var_begin == '&') {
-                varflags[i] |= PARAM_FLAG_ALLOW_HTML;
-                var_begin++;
-            }
-
-            varparams[i] = get_parameter_by_name(parser,proot,pstack,MUSTACHE_PARAM_ALL_BITS,var_begin,cur);
-            if (!varparams[i]) {
-                char warn_msg[256];
-                snprintf(warn_msg,sizeof(warn_msg), "failed to find parameter '%.*s'", cur-var_begin, var_begin);
-                parser->warn_callback(parser,warn_msg,interior,interior_end);
-            }
-            var_begin=NULL;
-        } else {
-            if (!var_begin) {
+        if (cur<interior_end) {
+            if (is_parameter_name_character(c) && !var_begin) {
                 var_begin=cur;
             }
+            if (c=='(') { // this means that the statement was actually a  function opening.
+                var_begin=NULL;
+            }
         }
+        if ((cur==interior_end||!is_parameter_name_character(c)) && var_begin) {
+            varcount++;
+            var_begin=NULL;
+        }
+        cur++;
+    }
+
+    mustache_param** varparams = parser->alloc(parser, sizeof(mustache_param*)*varcount + sizeof(structure_parameter_info)*varcount);
+    if (!varparams) {
+        return MUSTACHE_ERR_ALLOC;
+    }
+    structure_parameter_info* param_infos =  (structure_parameter_info*)(((char*)varparams)+sizeof(mustache_param*)*varcount);
+    memset(param_infos, 0, sizeof(structure_parameter_info)*varcount);
+
+    // populate params
+    cur = interior;
+    last_c = *cur;
+    var_begin=NULL;
+    uint32_t i = 0;
+    while (cur <= interior_end)
+    {
+        char c = *cur;
+        
+        if ((cur == interior_end || isspace(c)) && (is_parameter_name_character(last_c) || last_c==')'))
+        {
+            // vinterior is the parameter name, which can inside of a function, so it has to be stored seperately.
+            // unlike var_begin, it vinterior does not include any preceding flags (i.e. & or functions)
+            const char* vinterior_begin=var_begin;
+            const char* vinterior_end=cur;
+
+            param_infos[i].first = var_begin;
+            param_infos[i].end = cur;
+
+
+            /// note that the function type will be recorded as a variable flag
+            FUNCTION_TYPE ftype = is_slice_function(var_begin, cur, &vinterior_begin, &vinterior_end);
+
+            const char* var_end = cur;
+            if (ftype!=FUNCTION_TYPE_NONE) {
+                var_end = vinterior_begin;
+                var_begin = vinterior_end;
+            }
+            if (ftype==FUNCTION_TYPE_LEN) {
+                param_infos[i].flags |= PARAM_FLAG_FUNCTION_LEN;
+                var_begin+=strlen("len(");
+            }
+            
+            if (*var_begin == '&') {
+                param_infos[i].flags |= PARAM_FLAG_ALLOW_HTML;
+                vinterior_begin++;
+            }
+
+
+            varparams[i] = get_parameter_by_name(parser, proot, pstack, MUSTACHE_PARAM_ALL_BITS, vinterior_begin, vinterior_end);
+            if (!varparams[i]) {
+                char warn_msg[256];
+                snprintf(warn_msg,sizeof(warn_msg), "failed to find parameter '%.*s'", var_end-var_begin, var_begin);
+                parser->warn_callback(parser,warn_msg,interior,interior_end);
+            }
+
+            ++i;
+
+            var_begin=NULL;
+        } else if (!var_begin && !isspace(c)) {
+            var_begin=cur;
+        }
+
+        // // check and see if any parameters have not yet been resolved
+        // for (uint32_t i = 0; i <= varcount; ++i) {
+        //      if (!varparams[i]) {
+        //         char warn_msg[256];
+        //         snprintf(warn_msg,sizeof(warn_msg), "paramet
+        //         parser->warn_callback(parser,warn_msg,interior,interior_end);
+        //     }
+        // }
+
+        last_c = c;
         cur++;
     }
 
 
 
-    vars->first = interior;
     vars->type = STRUCTURE_TYPE_VAR;
-    vars->label_length = interior_end - interior;
     vars->parameters = varparams;
-    vars->param_flags = varflags;
+    vars->param_infos = param_infos;
     vars->parameter_count = varcount;
     vars->pLast = NULL;
     vars->pNext = NULL;
@@ -1364,7 +1534,7 @@ static MUSTACHE_RES create_structure_vars(mustache_parser* parser, mustache_para
 
 
 
-static MUSTACHE_RES label_to_structure(mustache_parser *parser, mustache_param *proot, parent_stack *pstack, MUSTACHE_TYPE type, const char* stache, const char* label_end, structure** s) 
+static MUSTACHE_RES label_to_structure(mustache_parser *parser, mustache_param *proot, parent_stack *pstack, MUSTACHE_TYPE type, const char* stache, const char* label_end, const char* src_end, structure** s) 
 {
     char err_msg[256];
 
@@ -1393,14 +1563,23 @@ static MUSTACHE_RES label_to_structure(mustache_parser *parser, mustache_param *
             structure_foreach* foreach = parser->alloc(parser, sizeof(*foreach));
             if (!foreach) {return MUSTACHE_ERR_ALLOC;}
 
-            MUSTACHE_RES err = create_structure_foreach(parser, proot, pstack, foreach, interior, end);
+            foreach->first = stache;
+            foreach->label_length = label_end-stache;
+
+            MUSTACHE_RES err = create_structure_foreach(parser, proot, pstack, foreach, stache, label_end, interior, end, src_end);
             if (err) {return err;}
 
             *s = (structure*)foreach;
+
+        } else if (*interior == '/') {
+            // close
+
         } else {
             structure_vars* vars = parser->alloc(parser, sizeof(*vars));
             if (!vars) {return MUSTACHE_ERR_ALLOC;}
 
+            vars->first = stache;
+            vars->label_length = label_end-stache;
             MUSTACHE_RES err = create_structure_vars(parser, proot, pstack, vars, interior, end);
             if (err) {return err;}
             *s = (structure*)vars;
@@ -1411,10 +1590,14 @@ static MUSTACHE_RES label_to_structure(mustache_parser *parser, mustache_param *
 }
 
 
-static uint8_t source_to_structured(mustache_parser* parser, mustache_param* proot, parent_stack* pstack, structure* structureRoot, const char* inputFirst, const char* inputHead, const char* inputEnd, structure** last_structure)
+static uint8_t source_to_structured(mustache_parser* parser, mustache_param* proot, parent_stack* pstack, structure* structureRoot, const char* inputFirst, const char* inputHead, const char* inputEnd, structure** structure_chain)
 {  
+    *structure_chain=NULL;
     char err_msg[256];
     const char* input_cur = inputFirst;
+
+    structure* last_struct = NULL;
+    
     while (input_cur  < inputEnd)
     {
         MUSTACHE_TYPE stache_type = is_mustache_open(input_cur, inputFirst, inputEnd);
@@ -1437,11 +1620,53 @@ static uint8_t source_to_structured(mustache_parser* parser, mustache_param* pro
                     return MUSTACHE_ERR_INVALID_TEMPLATE;
                 }
 
+
+                // technically, UINT16_MAX is the maximum number of bytes in a single label, but there's
+                // really no reason to support anything about INT16_MAX bytes, which also means
+                // that i won't have to worry about ++ or +1, or + (insert small number here)
+                // bugs for labels of lengths that are very close to UINT16_MAX
+                if ((uintptr_t)label_end-(uintptr_t)stache > INT16_MAX) {
+                    snprintf(err_msg, sizeof(err_msg), "label length exceeds the limit of %d bytes",INT16_MAX);
+                    parser->err_callback(parser, err_msg, stache, label_end);
+                    return MUSTACHE_ERR_INVALID_TEMPLATE;
+                }
+
                 structure* label_structure;
-                MUSTACHE_RES rs = label_to_structure(parser, proot, pstack, stache_type, stache, label_end, &label_structure);
+                MUSTACHE_RES rs = label_to_structure(parser, proot, pstack, stache_type, stache, label_end, inputEnd, &label_structure);
+                if (*structure_chain==NULL) {
+                    *structure_chain=label_structure;
+                }
+
+                if (last_struct) {
+                    last_struct->pNext = label_structure;
+                }
+                label_structure->pLast=last_struct;
+                last_struct = label_structure;
+
                 if (rs) {
                     return rs;
                 }
+            } else {
+
+                // record escape mustache structure
+                structure* escape_structure = parser->alloc(parser, sizeof(structure));
+                if (!escape_structure) {
+                    return MUSTACHE_ERR_ALLOC;
+                }
+
+                if (*structure_chain==NULL) {
+                    *structure_chain=escape_structure;
+                }
+
+                escape_structure->type = STRUCTURE_TYPE_ESCAPE;
+                escape_structure->first = stache;
+
+                escape_structure->pNext = NULL;
+                if (last_struct) {
+                    last_struct->pNext = escape_structure;
+                }
+                escape_structure->pLast=last_struct;
+                last_struct = escape_structure;
             }
         }
 
@@ -1449,30 +1674,221 @@ static uint8_t source_to_structured(mustache_parser* parser, mustache_param* pro
         input_cur++;
     }
 
+    if (last_struct) {
+        last_struct->pNext=NULL;
+    }
 
     return MUSTACHE_SUCCESS;
 }
 
-
-static uint8_t* mwrite(uint8_t* outputHead, uint8_t* outputEnd, const uint8_t* sourceBeg, const uint8_t* sourceEnd)
+// returns ~0 if the parameter in question should be used with the length function.
+// returns the length of the parameter for a valid parameter structure.
+static uint64_t get_parameter_len(mustache_param* param) 
 {
-    if (sourceBeg > sourceEnd) {
-        return outputHead;
+    if (param->type == MUSTACHE_PARAM_STRING) {
+        mustache_param_string *ps = (mustache_param_string*)param;
+        return ps->str.len;
+    } else if (param->type == MUSTACHE_PARAM_OBJECT) {
+        mustache_param_object *obj = (mustache_param_object*)param;
+
+        uint64_t mbr_cnt =0;
+        mustache_param *mbr = obj->pMembers;
+        while (mbr)
+        {
+            mbr_cnt++;
+            mbr=mbr->pNext;
+        }
+        return mbr_cnt;
+    } else if (param->type == MUSTACHE_PARAM_LIST) {
+        mustache_param_list *list = (mustache_param_list*)param;
+        return list->valueCount;
     }
-    
-    size_t a = sourceEnd - sourceBeg;
-    size_t b = outputEnd - outputHead;
-    size_t s = min((sourceEnd- sourceBeg), (outputEnd- outputHead));
-    memcpy(outputHead, sourceBeg, s);
-    return outputHead+s;
+
+    return ~0;
 }
 
 
 
-uint8_t write_structured(mustache_slice outputBuffer, uint8_t** oh, mustache_const_slice inputBuffer, const uint8_t* inputEnd, structure* structureRoot, 
-                         mustache_param* globalParams, parent_stack* parentStack, mustache_parser* parser)
+static uint8_t* mwrite(mustache_stream* stream, uint8_t* out_cur, uint8_t* out_end, const uint8_t* src_first, const uint8_t* src_end)
 {
+    #ifndef NDEBUG
+    if (src_end<src_first) {
+        assert(0&&"BAD WRITE: OUT OF ORDER SOURCE HEADS");
+    }
+    #endif
+    #ifndef NDEBUG
+    if (out_end<out_cur) {
+        assert(0&&"BAD WRITE: OUT OF ORDER OUTPUT HEADS");
+    }
+    #endif
+    // todo: add bounds check, flush output
+    // flush output to stream, reset cursor??
+
+    uint32_t s;
+    uint32_t so = out_end-out_cur;
+    uint32_t ss =  src_end-src_first;
     
+    if (so < ss) {
+        s = so;
+    } else {
+        s = ss;
+    }
+    memcpy(out_cur, src_first, s);
+    return out_cur+s;
+}
+
+
+static uint8_t* nwrite(mustache_stream* stream, uint8_t* out_cur, uint8_t* out_end, const uint8_t* src, size_t count)
+{
+    #ifndef NDEBUG
+    if (out_end<out_cur) {
+        assert(0&&"BAD WRITE: OUT OF ORDER OUTPUT HEADS");
+    }
+    #endif
+
+    // todo: add bounds check, flush output
+    // flush output to stream, reset cursor??
+
+    uint32_t s;
+    uint32_t so = out_end-out_cur;
+    uint32_t ss =  count;
+    
+    if (so < ss) {
+        s = so;
+    } else {
+        s = ss;
+    }
+    memcpy(out_cur, src, s);
+    return out_cur+s;
+}
+
+static uint8_t* strwrite(mustache_stream* stream, uint8_t* out_cur, uint8_t* out_end, const uint8_t* str) {
+   return nwrite(stream,out_cur,out_end,str,strlen(str));
+}
+
+static uint8_t* structure_vars_write(mustache_parser* parser, mustache_stream* stream, uint8_t* out_cur, uint8_t* out_end, structure_vars* sv)
+{
+
+
+    // characters between variables and opening/closing stache - (these may or may not exist)
+    const char* inter_first=sv->first+2;
+    const char* inter_last=sv->first+sv->label_length-2;
+    for (uint32_t i = 0; i < sv->parameter_count; ++i) 
+    {
+        // any characters between variables are preserved
+        mustache_param* p = sv->parameters[i];
+        structure_parameter_info* pi = sv->param_infos+i;
+        out_cur = mwrite(stream, out_cur, out_end, inter_first, pi->first);
+
+        if (pi->flags & PARAM_FLAG_FUNCTION) {
+            // treat as function
+            if (pi->flags & PARAM_FLAG_FUNCTION_LEN) {
+                uint64_t len = get_parameter_len(p);
+                if (len==~0) {
+                    // invalid parameter for the length function
+                    char err_msg[256];
+                    snprintf(err_msg,sizeof(err_msg),"invalid parameter %p '%s' for use in len() function.", p,p->name);
+                    parser->warn_callback(parser, err_msg, sv->first, sv->first+sv->label_length);
+                } else {
+                    // write var len
+                    char n[32];
+                    int16_t l = i64toa(len,n);
+                    out_cur = nwrite(stream, out_cur, out_end, n,l);
+                }
+            }
+        } else {
+
+            // treat as normal var 
+
+            if (p->type==MUSTACHE_PARAM_BOOLEAN) {
+                mustache_param_boolean *pb = (mustache_param_boolean*)p;
+                if (pb->value) {
+                    out_cur = strwrite(stream,out_cur,out_end,"true");
+                } else {
+                    out_cur = strwrite(stream,out_cur,out_end,"false");
+                }
+            } else if (p->type==MUSTACHE_PARAM_STRING) {
+                mustache_param_string *ps = (mustache_param_string*)p;
+                out_cur = nwrite(stream, out_cur, out_end, ps->str.u,ps->str.len);
+
+                printf("TODO: ADD HTML ESCAPE FOR STRINGS");
+            } else if (p->type==MUSTACHE_PARAM_NUMBER) {
+                mustache_param_number *pn = (mustache_param_number*)p;
+                char n[64];
+                
+                out_cur = dtoa(pn->value, out_cur, (size_t)(out_end - out_cur), pn->decimals, pn->trimZeros);
+            }
+        }
+
+        inter_first = pi->end;
+    }
+
+    out_cur = mwrite(stream, out_cur, out_end, inter_first, inter_last);
+
+    return out_cur;
+}
+
+static MUSTACHE_RES structure_write(mustache_parser* parser, mustache_stream* stream, char** output_cur, char* output_end, structure* schain, const char** input_cur) {
+
+    while (schain)
+    {
+        // write memory before structure
+        const char* prior_to_structure_first = schain->first;
+        // copy 'input_cur' to 'first' range
+        if (schain->type == STRUCTURE_TYPE_ESCAPE){ 
+            prior_to_structure_first--;
+        }
+        *output_cur = mwrite(stream,*output_cur,output_end, *input_cur, prior_to_structure_first);
+
+        
+        #ifndef NDEBUG
+            volatile const char* DBG_old_cur = *input_cur;
+        #endif 
+
+        // write the structure itself
+        if (schain->type == STRUCTURE_TYPE_VAR) {
+            structure_vars *sv=(structure_vars*)schain;
+            *output_cur = structure_vars_write(parser, stream,*output_cur,output_end, sv);
+
+            *input_cur = sv->first+sv->label_length;
+        } else if (schain->type == STRUCTURE_TYPE_ESCAPE) {
+            structure* escape_struct = schain;
+            *input_cur = escape_struct->first;
+        }
+
+        #ifndef NDEBUG
+            assert(*input_cur>=DBG_old_cur&&"INPUT_CUR SHOULD NEVER DECREASE");
+        #endif
+
+        schain = schain->pNext;
+    }
+    
+
+
+    // update input cursor to the end of the structure
+
+
+    return MUSTACHE_SUCCESS;
+}
+
+MUSTACHE_RES write_structured(mustache_parser* parser, mustache_stream* stream, char** output_cursor, char* output_first, char* output_end, const char* input_begin, const char* input_end, structure* schain)
+{
+    // write everything preceding the structure
+    // write the structure
+
+    char* outcur = output_first;
+
+    const char *linput=input_begin;
+
+    // traverses all structures on the same level, and 
+    // writes all children for each parent structure traversed
+
+    MUSTACHE_RES mres = structure_write(parser, stream, &outcur, output_end, schain, &linput);
+    if (mres) { // write failure
+        return mres;
+    }
+        
+    *output_cursor=outcur;
     return MUSTACHE_SUCCESS;
 }
 
@@ -1636,9 +2052,6 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStac
 
         const uint8_t* inputEnd = inputBuffer.u + readBytes;
 
-        uint8_t* outputHead = outputBuffer.u;
-        uint8_t* outputEnd = outputBuffer.u + outputBuffer.len;
-
         parent_stack parentStack = {
             .buf =  parentStackBuffer,
             .count = 0,
@@ -1646,13 +2059,16 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStac
         };
 
 
-        structure* laststruct=NULL;
+        structure* schain=NULL;
         MUSTACHE_RES err;
         if (!lastRoot->pNext) {
-            err = source_to_structured(parser, params, &parentStack, (structure*)lastRoot, inputBuffer.u, inputHead, inputEnd, &laststruct);
+            err = source_to_structured(parser, params, &parentStack, (structure*)lastRoot, inputBuffer.u, inputHead, inputEnd, &schain);
             if (err) {
                 return err;
             }
+
+            mustache_dbg_print_structure_chain((mustache_structure*)schain, 0);
+
             // alloc another root
             structure_root* root = parser->alloc(parser,sizeof(structure_root));
             if (!root) {
@@ -1661,6 +2077,9 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStac
             root->type = STRUCTURE_TYPE_ROOT;
             lastRoot->pNextRoot = (structure*)root;
         }
+
+        char*outputHead;
+        err = write_structured(parser, stream, &outputHead, outputBuffer.u, outputBuffer.u+outputBuffer.len, inputBuffer.u, inputBuffer.u + readBytes, schain);
 
         // err = write_structured(
         //     outputBuffer, &outputHead,
@@ -1676,7 +2095,7 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStac
 
         mustache_slice parsedSlice = {
             .u = outputBuffer.u,
-            .len = outputHead - outputBuffer.u,
+            .len = outputHead - (char*)outputBuffer.u,
         };
 
 
@@ -2267,6 +2686,7 @@ uint8_t mustache_free_param_list(mustache_parser* parser, mustache_param* paramR
 
 
 
+
 #ifdef MUSTACHE_SYSTEM_TESTS
 #include <stdio.h>
 
@@ -2364,6 +2784,106 @@ void mustache_print_parameter_list(mustache_param* root)
         mustache_print_node(root,0);
         root = root->pNext;
     }
+}
+
+#endif
+
+
+#ifndef NDEBUG
+
+void mustache_dbg_print_structure_chain(mustache_structure* __structure, int32_t tab_depth) 
+{
+    if (tab_depth==0) {
+        printf("\n[structure_chain]\n");
+    }
+    structure* s = (structure*)__structure;
+    
+    while (s)
+    {
+        for (int i = 0; i < tab_depth; ++i) {
+            printf("\t");
+        }
+        const char* tname=NULL;
+        if (s->type==STRUCTURE_TYPE_CONDITIONAL) {
+            tname="conditional";
+        }else if (s->type==STRUCTURE_TYPE_FOREACH) {
+            tname="foreach";
+        }else if (s->type==STRUCTURE_TYPE_VAR) {
+            tname="var";
+        }
+        else if (s->type==STRUCTURE_TYPE_ESCAPE) {
+            tname="escape";
+        }
+        printf("+ [%s]",tname);
+
+        uint32_t param_count;
+        structure_parameter_info* param_infos;
+        mustache_param** params = mustache_dbg_structure_get_params((mustache_structure*)s, &param_count, (void**)&param_infos);
+
+        if (param_count>0) {
+            printf("{");
+            for (int i = 0; i < param_count; ++i)
+            {
+                mustache_param* p = params[i];
+                PARAM_FLAGS pflag=0;
+                if (param_infos) {
+                    structure_parameter_info* pi = param_infos+i;
+                    pflag=pi->flags;
+                }
+                
+                if (pflag&PARAM_FLAG_FUNCTION_LEN) {
+                    printf("len(");
+                }
+                printf("'%.*s'",p->name.len, p->name.u);
+                if (pflag&PARAM_FLAG_FUNCTION_LEN) {
+                    printf(")");
+                }
+                if (i!=param_count-1) {
+                    printf(", ");
+                }
+            }
+            printf("}");
+        }
+        printf("\n");
+
+
+
+        structure* child = NULL;
+
+        if (s->type==STRUCTURE_TYPE_FOREACH) {
+            structure_foreach* fe = (structure_foreach*)s;
+            child = fe->children;
+        }
+        else if (s->type==STRUCTURE_TYPE_CONDITIONAL) {
+            structure_conditional* cc = (structure_conditional*)s;
+            child = cc->children;
+        }
+        while (child)
+        {
+            mustache_dbg_print_structure_chain((mustache_structure*)child, tab_depth+1);
+            child=child->pNext;
+        }
+
+        s=s->pNext;
+    }
+}
+
+mustache_param** mustache_dbg_structure_get_params(mustache_structure* _structure, uint32_t *pcount, void** param_infos)
+{
+    *param_infos=NULL;
+    structure *s =  (structure*)_structure;
+    if (s->type == STRUCTURE_TYPE_FOREACH) {
+        structure_foreach *fe = (structure_foreach*)s;
+        *pcount = 1;
+        return &fe->param;
+    } else if (s->type == STRUCTURE_TYPE_VAR) {
+        structure_vars *sv = (structure_vars*)s;
+        *pcount = sv->parameter_count;
+        *param_infos = sv->param_infos;
+        return sv->parameters;
+    }
+    *pcount = 0;
+    return NULL;
 }
 
 #endif

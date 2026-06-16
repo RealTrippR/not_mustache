@@ -1,27 +1,5 @@
 const char* TEMPLATE =
-"* * STRING TEMPLATE * *\n"
-"/{{ The len() function evaluates the length\n"
-"of a string parameter or the number of children\n"
-"parameters within a list or object parameter.\n"
-"}}\n"
-"\n"
-"For example, calling len on the object parameter {{&obj_as_str}}\n"
-"evaluates as {{len(obj)}}\n"
-"\n"
-"len on the list parameter {{&list_as_str}}\n"
-"evaluates as {{len(list)}}\n"
-"\n"
-"len on the string parameter {{&str_as_str}}\n"
-"evaluates as {{len(str)}}\n"
-"\n"
-"not_mustache also allows for multiple variables to be enclosed, like so:"
-"{{\n"
-"&obj_as_str\n"
-"len(str)\n"
-"}}\n"
-"and conditionals: {()}\n"
-"{{/}}";
-
+"not-mustache has support for conditional operators. These"
 
 
 #include "example_common.h"

@@ -5,7 +5,8 @@ NMI_DIR := ../not_mustache/inc/not_mustache
 
 INCL := -I $(NM_DIR)/src -I $(NM_DIR)/deps -I./ -I $(NM_DIR)/inc
 C_STD := -std=c99
-WERR_FLAGS := -Werror=int-conversion -Werror=pointer-arith  -Werror=implicit-function-declaration -Werror=incompatible-pointer-types -Werror=return-type
+#https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html
+WERR_FLAGS := -Werror=unused-value -Werror=int-conversion -Werror=pointer-arith  -Werror=implicit-function-declaration -Werror=incompatible-pointer-types -Werror=return-type
 
 GEN_FLAGS := -g $(WERR_FLAGS) ${C_STD}
 

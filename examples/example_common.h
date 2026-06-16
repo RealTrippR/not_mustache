@@ -136,6 +136,8 @@ parses a template source and stores it in a dynamically allocated buffer.
 MUSTACHE_RES parse_template(const char* template_source, char** parsed_template, size_t* parsed_template_length, void* arglist)
 {
     uint8_t PARSER_INPUT_BUFFER[4096];
+    uint8_t PARSER_BUFFER_PADDING[1024]; // THIS ONLY EXISTS FOR DEBUGGING PURPOSES, IT CAN SAFELY BE REMOVED
+    memset(PARSER_BUFFER_PADDING, 0xFF,sizeof(PARSER_BUFFER_PADDING));
     uint8_t PARSER_OUTPUT_BUFFER[8192];
     uint8_t PARENT_STACK_BUFFER[2048];
 

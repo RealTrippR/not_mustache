@@ -390,4 +390,12 @@ void mustache_print_parameter_list(mustache_param* root);
 
 #endif
 
+#ifndef NDEBUG 
+
+void mustache_dbg_print_structure_chain(mustache_structure* structure, int32_t tab_depth);
+
+mustache_param** mustache_dbg_structure_get_params(mustache_structure* structure, uint32_t *pcount, void**);
+
+#endif
+
 #endif
