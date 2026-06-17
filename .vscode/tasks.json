@@ -30,6 +30,18 @@
             ],
         },
         {
+            "label": "build_ex_foreach",
+            "type": "shell",
+            "command": "make foreach",
+            "args": [],
+            "options": {
+                "cwd": "${workspaceFolder}/examples"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+        },
+        {
             "label": "build_ex_parse",
             "type": "shell",
             "command": "make parse",

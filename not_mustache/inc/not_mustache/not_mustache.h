@@ -55,6 +55,7 @@ typedef enum {
     MUSTACHE_ERR_FILE_OPEN,
     MUSTACHE_ERR_NONEXISTENT,
     MUSTACHE_ERR_NO_SPACE,
+    MUSTACHE_ERR_STACK_OVERFLOW,
     MUSTACHE_ERR_OVERFLOW,
     MUSTACHE_ERR_UNDERFLOW,
     MUSTACHE_ERR_INCOMPLETE,
@@ -63,6 +64,15 @@ typedef enum {
     MUSTACHE_ERR_INVALID_TEMPLATE,
     MUSTACHE_ERR_INVALID_JSON
 } MUSTACHE_RES;
+
+typedef enum {
+    MUSTACHE_LOCALE_ASCII,
+    MUSTACHE_LOCALE_UTF8,
+    MUSTACHE_LOCALE_UTF16,
+    MUSTACHE_LOCALE_EBCDIC_1, // IBM EBCDIC CODEPAGE 1
+    MUSTACHE_LOCALE_EBCDIC_2  // IBM EBCDIC CODEPAGE 2
+} MUSTACHE_LOCALE;
+
 
 typedef enum {
     MUSTACHE_SEEK_SET = 0,
@@ -219,12 +229,30 @@ typedef struct mustache_structure
     void*           __H;        /* DO NOT ATTEMPT TO MODIFY THIS MEMBER, IT IS A PLACEHOLDER */
 } mustache_structure;
 
+typedef struct {
+    bool copy_strings:1;
+    bool use_parser_alloc_free:1;
+    
+    mustache_parser* parser;
+
+    void* buffer;
+    size_t buffer_size;
+
+    char*cur;
+
+    mustache_param* first_param;
+} mustache_json_info;
+
+
 /* ====== FUNCTION CALLBACK TYPES ====== */
 
 typedef void (*mustache_parse_callback)(mustache_parser* parser, void* udata, mustache_slice parsed);
 
 
 /* ====== FUNCTIONS ====== */
+
+
+mustache_param* mustache_param_get_child_at_index(mustache_param*, uint32_t index);
 
 /*****
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
@@ -307,6 +335,13 @@ void mustache_structure_chain_flush(mustache_structure* structure_chain);
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 *****/
+void mustache_structure_chain_update(mustache_structure* chain, void** updated_parameters, uint32_t updated_param_count);
+
+
+/*****
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+*****/
 mustache_param* mustache_parameter_get_child_list(mustache_param* param, uint32_t* max_child_count);
 
 
@@ -325,19 +360,6 @@ void mustache_dummy_err_callback(mustache_parser* parser, char err_msg[256],cons
 
 
 
-/*****
--+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
-
--+- Converts JSON from a file on disk into a mustache parameter chain. -+-
-@param mustache_parser* parser
-@param mustache_const_slice filename
-@param mustache_param** paramRoot - pointer to a pointer to the beginning of the parameter chain.
-
-@return uint8_t - MUSTACHE_RES return code.
-
--+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
-*****/
-uint8_t mustache_JSON_to_param_chain_from_disk(mustache_parser* parser, mustache_const_slice filename, mustache_param** paramRoot);
 
 
 /*****
@@ -347,32 +369,17 @@ uint8_t mustache_JSON_to_param_chain_from_disk(mustache_parser* parser, mustache
 
 @param mustache_parser* parser
 @param mustache_const_slice - JSON source
-@param mustache_param** paramRoot - pointer to a pointer 
-@param bool deepCopyData - if true, the source data will be copied rather than shallowly referenced where applicable.
+@param mustache_json_info* json_info
 
 @return uint8_t - MUSTACHE_RES return code.
 
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 *****/
-uint8_t mustache_JSON_to_param_chain(mustache_parser* parser, mustache_const_slice JSON, mustache_param** paramRoot, bool deepCopyData);
+uint8_t mustache_JSON(mustache_parser* parser, mustache_const_slice JSON, mustache_json_info* json_info);
 
 
+uint8_t mustache_JSON_free(mustache_json_info* json_info);
 
-/*****
--+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
-
--+- Converts JSON into a mustache parameter chain. -+-
-
-@param mustache_parser* parser
-@param mustache_const_slice - JSON source
-@param mustache_param* paramRoot - the parameter root
-@param bool deepCopyData - determines what data will be freed.
-
-@return uint8_t - MUSTACHE_RES return code.
-
--+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
-*/
-uint8_t mustache_free_param_list(mustache_parser* parser, mustache_param* paramRoot, bool deepCopy);
 
 /*
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-

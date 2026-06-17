@@ -1,5 +1,5 @@
-#include <stdio.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #include <not_mustache/not_mustache.h>
 #include <not_mustache/not_mustache_pmacros.h>

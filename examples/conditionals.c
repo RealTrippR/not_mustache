@@ -1,5 +1,5 @@
 const char* TEMPLATE =
-"not-mustache has support for conditional operators. These"
+"not-mustache has support for conditional operators. These";
 
 
 #include "example_common.h"
