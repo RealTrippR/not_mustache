@@ -54,6 +54,22 @@
             ]
         },
         {
+            "preLaunchTask": "build_ex_json",
+            "name": "example_json",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceRoot}/examples/bin/json.exe",
+            "cwd": "${workspaceFolder}/examples",
+            "MIMode": "gdb",
+              "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
             "preLaunchTask": "build_ex_usage",
             "name": "example_engine_usage",
             "type": "cppdbg",

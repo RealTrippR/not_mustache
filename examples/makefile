@@ -8,7 +8,7 @@ C_STD := -std=c99
 #https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html
 WERR_FLAGS := -Werror=unused-value -Werror=int-conversion -Werror=pointer-arith  -Werror=implicit-function-declaration -Werror=incompatible-pointer-types -Werror=return-type
 
-GEN_FLAGS := -g $(WERR_FLAGS) ${C_STD}
+GEN_FLAGS := -g -O0 $(WERR_FLAGS) ${C_STD}
 
 DEPS := $(NM_DIR)/deps/streql/strneql_x64_win.obj $(NM_DIR)/src/not_mustache.c
 
@@ -19,6 +19,9 @@ length:	length.c example_common.h 		$(NM_DIR)/src/not_mustache.c $(NMI_DIR)/not_
 
 foreach: foreach.c example_common.h 		$(NM_DIR)/src/not_mustache.c $(NMI_DIR)/not_mustache.h
 	gcc $(GEN_FLAGS) $(INCL) $(DEPS) foreach.c -o $(BDIR)/foreach.exe
+
+json: json.c example_common.h 		$(NM_DIR)/src/not_mustache.c $(NMI_DIR)/not_mustache.h
+	gcc $(GEN_FLAGS) $(INCL) $(DEPS) json.c -o $(BDIR)/json.exe
 
 
 

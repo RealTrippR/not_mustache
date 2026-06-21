@@ -9,8 +9,8 @@
 
 # <center> Not-Mustache </center> 
 #### <center> Template Specification </center>
-###### <center> November 2025 </center>
-###### <center> v01.m01.p00 </center>
+###### <center> June 2026 </center>
+###### <center> v2.m0.p00 </center>
 ###### <center> Copyright (C) Tripp R., All Rights Reserved </center>
 
 <br>

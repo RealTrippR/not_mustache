@@ -66,11 +66,11 @@ typedef enum {
 } MUSTACHE_RES;
 
 typedef enum {
-    MUSTACHE_LOCALE_ASCII,
-    MUSTACHE_LOCALE_UTF8,
-    MUSTACHE_LOCALE_UTF16,
-    MUSTACHE_LOCALE_EBCDIC_1, // IBM EBCDIC CODEPAGE 1
-    MUSTACHE_LOCALE_EBCDIC_2  // IBM EBCDIC CODEPAGE 2
+    MUSTACHE_LOCALE_ASCII=1,
+    MUSTACHE_LOCALE_UTF8=2,
+    MUSTACHE_LOCALE_UTF16=3,
+    MUSTACHE_LOCALE_EBCDIC_1=10, // IBM EBCDIC CODEPAGE 1
+    MUSTACHE_LOCALE_EBCDIC_2=11  // IBM EBCDIC CODEPAGE 2
 } MUSTACHE_LOCALE;
 
 
@@ -232,16 +232,32 @@ typedef struct mustache_structure
 typedef struct {
     bool copy_strings:1;
     bool use_parser_alloc_free:1;
-    
+    struct {
+        bool trim_zeros: 1;
+        uint8_t max_decimals:5;
+    } numinfo;
+
     mustache_parser* parser;
+    char*cur;
 
     void* buffer;
     size_t buffer_size;
 
-    char*cur;
-
     mustache_param* first_param;
+
+    
 } mustache_json_info;
+
+typedef struct {
+    size_t max_line_size;
+    size_t max_elements_per_object;
+    size_t max_elements_per_array;
+    size_t max_string_len;
+    size_t max_num_len;
+
+    MUSTACHE_LOCALE* supported_locales;
+    uint16_t         supported_locale_count;
+} mustache_parsing_engine_info;
 
 
 /* ====== FUNCTION CALLBACK TYPES ====== */
@@ -368,18 +384,49 @@ void mustache_dummy_err_callback(mustache_parser* parser, char err_msg[256],cons
 -+- Converts JSON into a mustache parameter chain. -+-
 
 @param mustache_parser* parser
-@param mustache_const_slice - JSON source
+@param mustache_const_slice JSON source
 @param mustache_json_info* json_info
+@return MUSTACHE_RES
 
-@return uint8_t - MUSTACHE_RES return code.
+
+    - if json_info.use_parser_alloc_free is false,
+    - the required size needed for a buffer will be
+    - set on call.
+    - the buffer allocated for the parameters must be of 
+    - size json_info.buffer_size, no bounds checks
+    - on the param buffer.
+
 
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 *****/
 uint8_t mustache_JSON(mustache_parser* parser, mustache_const_slice JSON, mustache_json_info* json_info);
 
 
-uint8_t mustache_JSON_free(mustache_json_info* json_info);
 
+/*****
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+
+-+- Frees a parameter chain created with mustache_JSON. -+- 
+
+If json_info.use_parser_alloc_free is false,
+this function need not be called, but it is safe to do so regardless.
+
+acts as a no-op is json_info.buffer is NULL or if json_info.use_parser_alloc_free is false
+
+@param mustache_parser* parser
+@param mustache_json_info* json_info
+
+@return MUSTACHE_RES
+
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+*****/
+uint8_t mustache_JSON_free(mustache_parser* parser, mustache_json_info* json_info);
+
+/*****
+-+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
+Queries JSON parsing engine parameters.
+*****/
+const mustache_parsing_engine_info* mustache_JSON_get_parsing_engine_info();
 
 /*
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
@@ -389,6 +436,7 @@ uint8_t mustache_JSON_free(mustache_json_info* json_info);
 -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+- -+-
 */
 
+#define MUSTACHE_SYSTEM_TESTS
 #ifdef MUSTACHE_SYSTEM_TESTS
 
 void mustache_print_node(mustache_param* node, int depth);

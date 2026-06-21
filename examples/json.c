@@ -1,15 +1,3 @@
-const char* TEMPLATE =
-"FOREACH EXAMPLE\n"
-"foreach on lists\n"
-"{{#people}}\n"
-"--\n"
-" + {{.name}}\n"
-" + {{.age}}\n"
-"--"
-"{{/}}\n";
-// "and conditionals: {(str)}\n"
-
-
 #include "example_common.h"
 
 
@@ -18,17 +6,67 @@ int main()
 {
     MUSTACHE_RES res = 0;
 
-
-    const char *json = "{\n"
+    const char *json1 = "{\n"
     "   \"people\": [\n"
-    "       {\"name\":\"Dennis\", \"age\": 20, \"hobbies\": [\"hiking\",\"programming\",\"guitar\",\"CS2 -_-\"], \"info\": {\"address\": \"123 main street.\"} },\n"
-    "       {\"name\":\"Audrey\", \"age\": 18, \"hobbies\": [\"knitting\",\"cross-country\"]},\n"
-    "       {\"name\":\"Jonathan\", \"age\": 19, \"hobbies\": [\"art\",\"bmx\",\"football\"]},\n"
-    "       {\"name\":\"Noah\", \"age\": 21, \"hobbies\": [\"cooking\"]},\n"
-    "       {\"name\":\"Grace\", \"age\": 20, \"hobbies\": [\"sketching\", \"piano\"]},\n"
+    "       \"Dennis\":"
+            " {\"age\": 20},\n"
+    "       \"Audrey\":"
+            " {\"age\": 18},\n"
+    "       \"Jonathan\":"
+            " {\"age\": 19},\n"
+    "       \"Noah\":"
+            " {\"age\": 21},\n"
+    "       \"Grace\":"
+            " {\"age\": 20}\n"
     "   ]\n"
     "}\0JSON_END";
 
+    const char *json2 = "{\n"
+    "   \"people\": [\n"
+    // "       \"Dennis\",\n"
+    // "       \"Audrey\",\n"
+    // "       \"Noah\",\n"
+    // "       \"Jonathan\",\n"
+    // "       \"Grace\"\n"
+    "       {\"name\":\"Dennis\", \"age\": 20},\n"
+    "       {\"name\":\"Audrey\", \"age\": 18},\n"
+    "       {\"name\":\"Jonathan\", \"age\": 19},\n"
+    "       {\"name\":\"Noah\", \"age\": 21},\n"
+    "       {\"name\":\"Grace\", \"age\": 20},\n"
+    "   ]\n"
+    "}\0JSON_END";
+
+
+    const char* json3 = "{\n"
+    "  \"waterlevels_in\": [\n"
+    "       -5.25,"
+    "       -2.0005,"
+    "       -3.1345,"
+    "       0.00000,"
+    "       2.9575,"
+    "       4.750,"
+    "       2,"
+    "       10,"
+    "       12,"
+    "       0"
+    "   ],"
+    "   \"waterlevels_um\": ["
+    "       -2325.3253,"
+    "       -9895398.53053,"
+    "       -21336363.55,"
+    "       230603463.366,"
+    "       10.25e10,"
+    "       10.25E10,"
+    "       23985e-20,"
+    "       320959e-11"
+    "   ]"   
+    "}\0JSON_END";
+
+
+    const char *json = json2;
+
+
+    printf("JSON: \n%s\n\n", json);
 
     mustache_json_info json_info = {
         .copy_strings = 1,
@@ -39,6 +77,7 @@ int main()
             .trim_zeros = 0
         }
     };
+
 
     mustache_param* json_first_param;
     printf("Converting JSON to mustache parameter chain... ");
@@ -74,31 +113,6 @@ int main()
     mustache_print_parameter_list(json_info.first_param);
 
     mustache_JSON_free(&parser, &json_info);
-
-    const mustache_param_list *people = ((mustache_param_object*)json_info.first_param)->pMembers;
-
-    
-
-    char* parsed_template = NULL;
-    size_t parsed_template_len;
-
-
-
-    if ((res = parse_template(TEMPLATE, &parsed_template, &parsed_template_len, people))<0) {
-        goto bail;
-    }
-
-    if (parsed_template_len == 0) {
-        printf("PARSED TEMPLATE IS EMPTY [parsed_template_len = 0].\n");
-    } else {
-        printf("PARSED TEMPLATE\n=============================\n%.*s",(uint32_t)parsed_template_len, parsed_template);
-    }
-
-bail:
-    if (parsed_template) {
-        free_template(parsed_template);
-        parsed_template = NULL;
-    }
 
     return res;
 }

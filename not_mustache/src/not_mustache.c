@@ -33,8 +33,10 @@ form of Artificial Intelligence.
 #include <streql/streqlasm.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <inttypes.h>
 #include <ctype.h>
+#include <errno.h>
 
 #ifndef NDEBUG
 #include <assert.h>
@@ -183,7 +185,7 @@ static mustache_param* get_pstack_child_by_name(parent_stack *pstack,  uint32_t 
     uint32_t max_children;
 
     // go up
-    parent_stack_block* b = ((parent_stack_block*)pstack->buf.u)+pstack->count-1-dotcount;
+    parent_stack_block* b = ((parent_stack_block*)pstack->buf.u)+pstack->count-dotcount;
     mustache_param* parent_param = b->param;
     child = mustache_parameter_get_child_list(parent_param, &max_children);
     uint32_t i = 0;
@@ -268,7 +270,7 @@ typedef enum {
     PARAM_FLAG_ALLOW_HTML = 0x1,
     PARAM_FLAG_IS_DOT = 0x2, // only available in foreach loops
     PARAM_FLAG_FUNCTION = 0x80,
-    PARAM_FLAG_FUNCTION_LEN = 0x2 | PARAM_FLAG_FUNCTION
+    PARAM_FLAG_FUNCTION_LEN = 0x4 | PARAM_FLAG_FUNCTION
 } PARAM_FLAGS_ENUM;
 
 typedef uint16_t PARAM_FLAGS;
@@ -290,7 +292,13 @@ typedef struct structure_var {
     uint16_t label_length; // the length of the label (opening mustache line), = len("{{#name}}")
 
     uint16_t parameter_count;
-    mustache_param** parameters;
+    mustache_param** parameters;    // an array of ptrs to parameters.
+                                    // if one of these parameters is a dot parameter,
+                                    // it is actually a ptr to the index of the first
+                                    // dot parameter  of this var in the foreach parent.
+                                    // the dot parameter for the current loop can be 
+                                    // accessed by:
+                                    // foreach.dot_params[(size_t)param + dots_in_this_var * loop_idx]
 
     structure_parameter_info* param_infos;
 } structure_vars;
@@ -310,7 +318,11 @@ typedef struct structure_foreach {
 
     mustache_param* param; // the parent object to search in the foreach loop
     mustache_param** dot_params;
-    uint32_t cur_dot_index;
+
+    union {
+        uint32_t cur_dot_index;
+        uint32_t cur_param_index;
+    };
 } structure_foreach;
 
 typedef struct structure_conditional {
@@ -1437,7 +1449,7 @@ mustache_param* get_parameter_by_name(mustache_parser* parser, mustache_param* p
         return NULL;
     }
 
-    if (*ni_first == '.') {
+    if (*n_end == '.') {
         parent_stack_push(parser, pstack, param, NULL, NULL);
         param = get_parameter_by_name(parser, proot, pstack, MUSTACHE_PARAM_ALL_BITS, n_first+1, ni_end);
         parent_stack_pop(pstack);
@@ -1611,7 +1623,7 @@ static MUSTACHE_RES create_structure_vars(mustache_parser* parser, mustache_para
                 var_begin=NULL;
             }
         }
-        if ((cur==interior_end || !is_parameter_name_character(c)) && var_begin) {
+        else if (((cur==interior_end || !is_parameter_name_character(c))) && var_begin) {
             varcount++;
             var_begin=NULL;
         }
@@ -1622,7 +1634,7 @@ static MUSTACHE_RES create_structure_vars(mustache_parser* parser, mustache_para
         char err_msg[256];
         snprintf(err_msg, sizeof(err_msg), "A variable mustache cannot be empty");
         parser->err_callback(parser,err_msg,interior-2,interior_end+2);
-        return MUSTACHE_ERR_INVALID_JSON;
+        return MUSTACHE_ERR_INVALID_TEMPLATE;
     }
 
     mustache_param** varparams = parser->alloc(parser, sizeof(mustache_param*)*varcount + sizeof(structure_parameter_info)*varcount);
@@ -1817,11 +1829,7 @@ static MUSTACHE_RES label_to_structure(mustache_parser *parser, mustache_param *
 
             pblock->untyped_a = 0; // dot count
             pblock->untyped_b = 0; // the current dot index
-            // if (pblock->untyped_a!=0) {
-            //     foreach->dot_params = parser->alloc(parser, sizeof(mustache_param*)*pblock->untyped_a);
-            // } else {
-            //     foreach->dot_params = NULL;
-            // }
+
             *s = (structure*)foreach;
 
     #ifndef NDEBUG
@@ -1951,41 +1959,6 @@ static uint8_t source_to_structured(mustache_parser* parser, mustache_param* pro
     return MUSTACHE_SUCCESS;
 }
 
-/*
-static uint32_t get_dot_params(structure* schain) {
-    uint32_t total_dot_params;
-    while (schain)
-    {
-        if (schain->type == STRUCTURE_TYPE_VAR) {
-
-            structure_vars* v = (structure_vars*)schain;
-
-            uint32_t i;
-            for (i=0;i<v->parameter_count;++i) {
-                if (v->param_infos[i].flags&PARAM_FLAG_IS_DOT) {
-                    if (total_dot_params==UINT32_MAX-1) {
-                        return MUSTACHE_ERR_NO_SPACE;
-                    }
-                    total_dot_params++;
-                }
-            }
-        }
-        else if (schain->type==STRUCTURE_TYPE_FOREACH) {
-            structure_foreach* fe = (structure_foreach*)schain;
-            uint32_t toadd = get_dot_params(fe->children);
-
-            if ((UINT32_MAX-1)-toadd < total_dot_params) {
-                return UINT32_MAX;
-            }
-            total_dot_params = toadd;
-        }
-        schain = schain->pNext;
-    }
-
-    return 0;
-} 
-*/
-
 
 // this assigns a slice of the dot parameter buffer to a foreach structure.
 static mustache_param** set_dot_param_buffers_of_foreach_structures(mustache_param** dot_param_buf_out, structure* schain) 
@@ -2023,10 +1996,10 @@ static mustache_param* structure_var_evaluate_dot_parameter(mustache_parser *par
     const char* end = pi->first;
     for (; *end != '.' && end < pi->end; end++){}
 
-    mustache_param* param = get_parameter_by_name(parser, NULL, pstack, MUSTACHE_PARAM_ALL_BITS, pi->first, end);
+    mustache_param* param = get_parameter_by_name(parser, NULL, pstack, MUSTACHE_PARAM_ALL_BITS, pi->first-1, end);
 
 
-    return NULL;
+    return param;
 }
 
 
@@ -2045,20 +2018,30 @@ static MUSTACHE_RES populate_dot_param_buffer(mustache_parser *prsr, parent_stac
                 if (pi->flags&PARAM_FLAG_IS_DOT) {
                     structure_foreach *fe_p = (structure_foreach*)pi->untyped_a;
                     uint32_t fe_child_param_count;
-                    mustache_parameter_get_child_list(fe_p->param, &fe_child_param_count);
+                    mustache_param*child= mustache_parameter_get_child_list(fe_p->param, &fe_child_param_count);
+
+                    size_t fdoti = fe_p->cur_dot_index;
 
                     uint32_t j;
                     for (j=0; j < fe_child_param_count; j++)
                     {
-                        v->parameters[i] = structure_var_evaluate_dot_parameter(prsr, pstack, fe_p, j, pi);
-                        if (!v->parameters[i]) {
+                        volatile parent_stack_block* dbg = parent_stack_push(prsr,pstack,child,(structure*)NULL,NULL);
+
+                        void* param = structure_var_evaluate_dot_parameter(prsr, pstack, fe_p, j, pi);
+                        if (!param) {
                             char err_msg[256];
                             snprintf(err_msg,sizeof(err_msg),"error: could not evaluate dot parameter.");
                             prsr->err_callback(prsr,err_msg,pi->first,pi->end);
                             return MUSTACHE_ERR;
                         }
-                        fe_p->dot_params[j] = v->parameters[i];
+
+                        fe_p->dot_params[fe_p->cur_dot_index++] = param;
+
+
+                        parent_stack_pop(pstack);
+                        child=child->pNext;
                     }
+                    v->parameters[i] = (void*)fdoti;
                 }
             }
         }
@@ -2200,10 +2183,10 @@ static uint8_t* structure_vars_write(mustache_parser* parser, mustache_stream* s
         structure_parameter_info* pi = sv->param_infos+i;
         mustache_param* p = sv->parameters[i];
 
-        // evaluate parameter, if it is a '.'
+        //evaluate parameter, if it is a '.'
         if (pi->flags & PARAM_FLAG_IS_DOT) {
             structure_foreach* fe = (structure_foreach*)pi->untyped_a;
-            p = fe->dot_params[fe->cur_dot_index];
+            p = fe->dot_params[(size_t)p+fe->cur_param_index];
             inter_first += pi->untyped_b;
         }
 
@@ -2227,6 +2210,10 @@ static uint8_t* structure_vars_write(mustache_parser* parser, mustache_stream* s
                     int16_t l = i64toa(len,n);
                     out_cur = nwrite(stream, out_cur, out_end, n,l);
                 }
+            } else {
+                char warn_msg[256];
+                snprintf(warn_msg,sizeof(warn_msg),"invalid function type in variable.");
+                parser->warn_callback(parser,warn_msg,sv->first,sv->first+sv->label_length);
             }
         } else {
 
@@ -2265,13 +2252,13 @@ static char* structure_foreach_write(mustache_parser* parser, mustache_stream* s
 
     uint32_t child_count=0;
     mustache_parameter_get_child_list(sf->param, &child_count);
+    sf->cur_param_index=0;
     for (uint32_t i = 0; i < child_count; ++i) {
         *input_cur = sf->first+sf->label_length;
         structure_write(parser,stream, &out_cur, out_end,sf->children, input_cur, (structure*)sf);
-        sf->cur_dot_index++;
-
         // write memory after input cursor
         out_cur = mwrite(stream,out_cur, out_end, *input_cur, sf->end_label);
+        sf->cur_param_index++;
     }
 
     return out_cur;
@@ -2281,8 +2268,6 @@ static char* structure_foreach_write(mustache_parser* parser, mustache_stream* s
 
 static MUSTACHE_RES structure_write(mustache_parser* parser, mustache_stream* stream, char** output_cur, char* output_end, structure* schain, const char** input_cur, structure* parent) 
 {
-    (void)parent;
-
     while (schain)
     {
         // write memory before structure
@@ -2310,7 +2295,7 @@ static MUSTACHE_RES structure_write(mustache_parser* parser, mustache_stream* st
         {
             structure_foreach *sf =   (structure_foreach*)schain;  
 
-            sf->cur_dot_index = 0; // RESET CHILD INDEX HEAD
+            sf->cur_param_index = 0; // RESET CHILD PARAM INDEX HEAD
             *output_cur = structure_foreach_write(parser, stream, *output_cur, output_end, input_cur, sf);
         } 
         else if (schain->type == STRUCTURE_TYPE_ESCAPE) 
@@ -2634,12 +2619,14 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStac
 // since mustache doesn't require support for any charset other than ASCII,
 // there is a slight conflict with the JSON spec, which mandates UTF-8 encoding
 
-// returns the actual name length, excluding any escape characters
-
+// returns the actual name length, factoring in any escape characters
+// 
 // if the buffer exists, this will also write the string!
 // thus, only use this for strings and key names
-
-static char* grab_JSON_STRING(mustache_json_info* ji, const char* sfirst, const char** send, size_t* evaluated_len, const char* src_end)
+//
+// note that send-sfirst DOES not give the evaluated length - it is a seperate property.
+// however, if ji->cur isn't NULL, send-sfirst is the same as evaluated_len.
+static const char* grab_JSON_string(mustache_json_info* ji, const char* sfirst, const char** send, const char**input_end, size_t* evaluated_len, const char* src_end)
 {
     // 1 past opening "
     sfirst++;
@@ -2659,6 +2646,9 @@ static char* grab_JSON_STRING(mustache_json_info* ji, const char* sfirst, const 
             esc_char_count++;
         }
         if (*(vend-1)!='\\'&&c=='"') {
+            if (input_end) {
+                *input_end=vend;
+            }
             break;
         }
         vend++;
@@ -2669,7 +2659,7 @@ static char* grab_JSON_STRING(mustache_json_info* ji, const char* sfirst, const 
         
         if (SIZE_MAX - ji->buffer_size < name_len) {
             *send=NULL;
-            return;
+            return NULL;
         }
         ji->buffer_size += name_len;
 
@@ -2679,7 +2669,7 @@ static char* grab_JSON_STRING(mustache_json_info* ji, const char* sfirst, const 
         if (ji->copy_strings) {
             if (SIZE_MAX - ji->buffer_size < name_len) {
                 *send=NULL;
-                return;
+                return NULL;
             }
             ji->buffer_size += name_len;
         }
@@ -2692,10 +2682,10 @@ static char* grab_JSON_STRING(mustache_json_info* ji, const char* sfirst, const 
 
         // write string
         if (esc_char_count) {
-            while (sfirst < send)
+            while (sfirst < *send)
             {
                 char c = *sfirst;
-                if (c=='\\' && sfirst < send-1) {
+                if (c=='\\' && sfirst < (*send)-1) {
                     sfirst++;
                     c=*sfirst;
                     if (c=='n') {
@@ -2725,121 +2715,355 @@ static char* grab_JSON_STRING(mustache_json_info* ji, const char* sfirst, const 
         }
         else if (ji->copy_strings) {
             memcpy(ji->cur, sfirst, name_len);
+            ji->cur += name_len;
         }
 
-        ji->cur += name_len;
+        *evaluated_len=name_len;
+
+        *send=ji->cur;
         return str;
     }
 
-    *evaluated_size=name_len;
+    *evaluated_len=name_len;
     *send=vend;
-    return NULL;
+    return sfirst;
 }
 
 // forward declaration
-static const char* parse_JSON_node(mustache_json_info* ji, const char* name_first, const char* src_end);
+static const char* parse_JSON_node(mustache_json_info* ji, mustache_param** node_out, const char* name_first, const char* src_end, MUSTACHE_PARAM_TYPE param_type);
 
-static const char* parse_JSON_string(mustache_json_info* ji, const char *vfirst, const char* name, const char* src_end)
+static const char* parse_JSON_string(mustache_json_info* ji, mustache_param** node_out, const char* first, const char* src_end)
 {
-    
-}
-
-static const char* parse_JSON_array(mustache_json_info* ji, const char *vfirst, const char* name, const char* src_end)
-{
-    
-}
-
-static const char* parse_JSON_object(mustache_json_info* ji, const char *vfirst, const char* name, const char* src_end)
-{
-    
-}
-
-static const char* parse_JSON_number(mustache_json_info* ji, const char *vfirst, const char* name, const char* src_end)
-{
-    // find end of number
-    
-}
-
-
-
-
-
-static uint8_t JSON_parse_obj(mustache_json_info* ji, const char* name, const char* name_end, const char* first_bracket, const char* src_end)
-{
-    // DO NOT ADD NAME SIZE TO BUFFER SIZE, IT WAS ALREADY ADDED BEFORE THE CALL TO THIS FUNCTION
-
-    if (SIZE_MAX - ji->buffer_size < sizeof(mustache_param_object)) {
-        return MUSTACHE_ERR_NO_SPACE;
-    }
-    ji->buffer_size += sizeof(mustache_param_object);
-  
-    
-    const char* cur = first_bracket;
-
-    while (cur < src_end)
-    {
-        // it's the beginning of a name.
-        if (*cur == '\"') {
-            cur = parse_JSON_node(ji, cur+1, src_end);
-            if (cur == NULL) {
-                return MUSTACHE_ERR_INVALID_JSON;
-            }
-        }
-    }
-}
-
-static const char* parse_JSON_node(mustache_json_info* ji, const char* name_first, const char* src_end)
-{
-    const char*cur=name_first;
-    const char* name_end = NULL;
-    while (cur < src_end)
-    {
-        if (*cur=="\"") {
-            name_end=cur;
-            break;
-        } 
-        cur++;
-
-    }
-    if (!name_end || name_end==name_first) {
+    if (SIZE_MAX - ji->buffer_size < sizeof(mustache_param_string)) {
         return NULL;
     }
 
-    if (ji->copy_strings) {
-        size_t namelen = name_end-name_first;
-        if (SIZE_MAX - ji->buffer_size < namelen) {
-            return MUSTACHE_ERR_NO_SPACE;
+    ji->buffer_size += sizeof(mustache_param_string);
+
+    
+    size_t dummy;
+    const char* sfirst=NULL;
+    const char* send=NULL;
+    const char* cur = first;
+    while (cur < src_end)
+    {
+        const char c = *cur;
+        if (c=='"') {
+            sfirst = grab_JSON_string(ji, cur, &send, &cur, &dummy, src_end);
+            if (!sfirst) {
+                return NULL;
+            }
+            break;
         }
-        ji->buffer_size += namelen;
+        cur++;
     }
+
+
+    if (ji->cur) 
+    {
+        mustache_param_string *p = (mustache_param_string*)ji->cur;
+        p->type = MUSTACHE_PARAM_STRING;
+        p->pNext = NULL;
+        p->str = (mustache_slice){(uint8_t*)sfirst, send-sfirst};
+        if (p->str.len==0) {
+            p->str.u=NULL;
+        }
+
+        ji->cur+=sizeof(*p);
+        *node_out = (mustache_param*)p;
+    }
+    return cur;
+}
+
+static const char* parse_JSON_array(mustache_json_info* ji, mustache_param** node_out, const char* first, const char* src_end)
+{
+    if (SIZE_MAX - ji->buffer_size < sizeof(mustache_param_list)) {
+        return NULL;
+    }
+    ji->buffer_size += sizeof(mustache_param_list);
+
+
+    mustache_param_list* list;
+    if (ji->cur) 
+    {
+        list = (mustache_param_list*)ji->cur;
+        list->type = MUSTACHE_PARAM_LIST;
+        list->pValues = NULL;
+        list->valueCount = 0;
+
+        *node_out = (mustache_param*)list;
+        ji->cur+=sizeof(mustache_param_list);
+    }
+
+
+    // arrays are a bit more complicated, since a value isn't always preceded by a key - a param might not have a name.
+
+    mustache_param* plast = NULL;
+    const char* cur = first;
+    while (cur < src_end)
+    {
+        char c = *cur;
+
+        if (c=='\"' || isdigit(c) || c=='{' || c=='[') {
+            mustache_param *p=NULL;
+            
+            cur = parse_JSON_node(ji, &p, cur, src_end, MUSTACHE_PARAM_LIST);
+            if (!cur) {
+                return NULL;
+            }
+            if (ji->cur) {
+                list->valueCount++;
+                if (!list->pValues) {
+                    list->pValues = p;
+                    plast = p;
+                } else {
+                    plast->pNext=p;
+                    plast=p;
+                }
+            }
+        }
+
+
+        c = *cur;
+        if (c==']') {
+            cur++;
+            break;
+        }
+        cur++;
+    }
+    
+    return cur;
+}
+
+static const char* parse_JSON_object(mustache_json_info* ji, mustache_param** node_out, const char* first, const char* src_end)
+{
+    if (SIZE_MAX - ji->buffer_size < sizeof(mustache_param_object)) {
+        return NULL;
+    }
+    ji->buffer_size += sizeof(mustache_param_object);
+
+    mustache_param_object *obj=NULL;
+    if (ji->cur) 
+    {
+        obj = (mustache_param_object*)ji->cur;
+        obj->type=MUSTACHE_PARAM_OBJECT;
+        obj->pNext = NULL;
+        obj->pMembers=NULL;
+
+        ji->cur+=sizeof(mustache_param_object);
+        *node_out = (mustache_param*)obj;
+    }
+
+    mustache_param *last_child=NULL;
+    const char* cur = first;
+    while (cur < src_end)
+    {
+        char c = *cur;
+        if (c=='\"') {
+            mustache_param *p=NULL;
+            cur = parse_JSON_node(ji, &p, cur, src_end, MUSTACHE_PARAM_OBJECT);
+            if (!cur) {
+                return NULL;
+            }
+            if (ji->cur) {
+                if (last_child) {
+                    last_child->pNext = p;
+                    last_child = p;
+                } else {
+                    obj->pMembers=p;
+                    last_child=p;
+                }
+            }
+        }
+
+        c = *cur;
+        if (c=='}') {
+            cur++;
+            break;
+        }
+        cur++;
+    }
+
+    if (last_child) {
+        last_child->pNext=NULL;
+    }
+    
+
+
+
+    return cur;
+}
+
+static const char* parse_JSON_number(mustache_json_info* ji, mustache_param** node_out, const char* first, const char* src_end)
+{
+    if (SIZE_MAX - ji->buffer_size < sizeof(mustache_param_number)) {
+        return NULL;
+    }
+    ji->buffer_size+=sizeof(mustache_param_number);
+
+    // get number as a floating point
+
+    const char* num_first = first;
+    const char* num_end = first;
+    const char* exp_first = NULL;
+    const char* exp_end = NULL;
+    while (first < src_end) {
+        const char c = *first;
+        if (c=='e' || c=='E') {
+            num_end=first;
+            exp_first=first+1;
+        }
+        else if (isspace(c) || c == ',' || c == ']' || c == '}') {
+            if (exp_first) {
+                exp_end = first;
+            } else {
+                num_end = first;
+            }
+            break;
+        }
+        first++;
+    }
+
+    size_t numlen = num_end-num_first;
+    size_t explen = exp_end-exp_first;
+    if (numlen > 127 || explen > 127) {
+        // since json validators don't typically check for this...
+        return NULL;
+    } 
+
+    if (ji->cur) {
+        mustache_param_number* num = (mustache_param_number*)ji->cur;
+        num->type = MUSTACHE_PARAM_NUMBER;
+        _set_errno(0);
+        
+        uint8_t num_tmp[128];
+        memcpy(num_tmp,num_first,numlen);
+        num_tmp[numlen]=0;
+
+        num->value = strtod(num_tmp, NULL);
+
+        if (exp_first) {
+            memcpy(num_tmp, exp_first, explen);
+            num_tmp[explen]=0;
+            num->value*=strtod(num_tmp, NULL);
+        }
+
+        num->decimals = ji->numinfo.max_decimals;
+        num->trimZeros = ji->numinfo.trim_zeros;
+
+        *node_out = (mustache_param*)num;
+        ji->cur += sizeof(*num);
+    }
+
+    return (exp_end) ? exp_end : num_end;
+}
+
+
+
+static const char* parse_JSON_node(mustache_json_info* ji, mustache_param** node_out, const char* name_first, const char* src_end, MUSTACHE_PARAM_TYPE parent_type)
+{
+    const char*cur=name_first;
+    const char* name = NULL;
+    const char* name_end = NULL;
+    
+    char has_name = 1;
+    if (parent_type == MUSTACHE_PARAM_LIST) {
+        const char* tmp = cur;
+        // is the string a 
+        while (tmp < src_end)
+        {
+            if (tmp[0] != '\\' || tmp[1] == '"') {
+                name_end = tmp;
+                break;
+            }
+            tmp++;
+        }
+        // find colon
+        const char* colon = NULL;
+        while (tmp < src_end)
+        {
+            if (*tmp==':') {
+                colon = tmp;
+            }
+            if (!isspace(*tmp)) {
+                break;
+            }
+            tmp++;
+        }
+        if (!colon) {
+            has_name=0;
+            name = NULL;
+            name_end = NULL;
+            cur=tmp;
+        } else {
+            cur = name_first;
+        }
+    }
+    if (has_name) {
+        size_t name_len;
+        name_end = NULL;
+        name = grab_JSON_string(ji, cur, &name_end, &cur, &name_len, src_end);
+        // if (!name) {
+        //     return NULL;
+        // }
+            
+        // +2 since name_end is the last quotation after the name, so the value will be at least 2 bytes away
+        cur+=2;
+    }
+
+
 
     while (cur<src_end)
     {
         const char c=*cur;
         if (c=='\"') {
             // treat as string
-            parse_JSON_string(ji,name,cur,src_end);
+            cur=parse_JSON_string(ji, node_out, cur, src_end);
+            goto ret_node;
         } else if (c=='[') {
             // treat as array
-            parse_JSON_array(ji,name,cur,src_end);
+            cur=parse_JSON_array(ji, node_out, cur+1, src_end);
+            goto ret_node;
         } else if (c=='{') {
             // treat as object
-            parse_JSON_string(ji,name,cur,src_end);
-        } else if (isdigit(c)) {
+            cur=parse_JSON_object(ji, node_out, cur+1, src_end);
+            goto ret_node;
+        } else if (isdigit(c) || c=='-') {
             // treat as number
-            parse_JSON_number(ji,name,cur,src_end);
+            cur=parse_JSON_number(ji, node_out, cur, src_end);
+            goto ret_node;
+        } else {
+            cur++;
+        }
+        // if (!cur){
+        //     return NULL;
+        // }
+    }
+
+    return cur;
+
+ret_node:
+    // if (!cur){
+    //     return NULL;
+    // }
+    if (*node_out) {
+        if (has_name) {
+            (*node_out)->name = (mustache_const_slice){name, name_end-name};
+        } else {
+            (*node_out)->name = (mustache_const_slice){NULL,0};
         }
     }
 
     return cur;
 }
 
-uint8_t mustache_JSON(mustache_const_slice JSON, mustache_json_info* json_info)
+uint8_t mustache_JSON(mustache_parser* parser, mustache_const_slice JSON, mustache_json_info* json_info)
 {
     if (json_info->use_parser_alloc_free && !json_info->parser) {return MUSTACHE_ERR_ARGS;}
     if (json_info->buffer && json_info->buffer_size==0) {return MUSTACHE_ERR_ARGS;}
 
     json_info->buffer_size = 0;
+    json_info->first_param = NULL;
     json_info->cur=json_info->buffer;
 
     const char* cur = JSON.u;
@@ -2851,23 +3075,42 @@ uint8_t mustache_JSON(mustache_const_slice JSON, mustache_json_info* json_info)
     {
         if (*cur == '{') {
             root_first=cur;
+            break;
         }
         cur++;
     }
     
     if (root_first) {
-        JSON_parse_obj(json_info, root_first,root_first,root_first,end);
-    } else {
-        return MUSTACHE_SUCCESS;
+        mustache_param* root=NULL;
+        parse_JSON_object(json_info, &root, root_first+1, end);
+        json_info->first_param = root;
+
+        if (json_info->use_parser_alloc_free) {
+            json_info->buffer = parser->alloc(parser, json_info->buffer_size);
+            if (!json_info->buffer) {
+                return MUSTACHE_ERR_ALLOC;
+            }
+
+            parse_JSON_object(json_info, &root, root_first+1, end);
+        }
+        if (root) {
+            root->name.u=NULL;
+            root->name.len=0;
+        }
     }
+
+    return MUSTACHE_SUCCESS;
 }
 
 
 
-uint8_t mustache_JSON_free(mustache_json_info* json_info)
+
+
+uint8_t mustache_JSON_free(mustache_parser* parser, mustache_json_info* json_info)
 {
     if (json_info->use_parser_alloc_free && json_info->buffer) {
         json_info->parser->free(json_info->parser, json_info->buffer);
+        json_info->buffer=NULL;
     }
     return MUSTACHE_SUCCESS;
 }
@@ -2876,9 +3119,23 @@ uint8_t mustache_JSON_free(mustache_json_info* json_info)
 
 
 
+const mustache_parsing_engine_info* mustache_JSON_get_parsing_engine_info() {
+    static MUSTACHE_LOCALE locales[] = {MUSTACHE_LOCALE_ASCII};
+    static mustache_parsing_engine_info i = {
+        .max_elements_per_array=UINT32_MAX,
+        .max_elements_per_object=UINT32_MAX,
+        .max_line_size = SIZE_MAX,
+        .max_string_len = SIZE_MAX,
+        .supported_locale_count = sizeof(locales)/sizeof(locales[0]),
+        .supported_locales = locales
+    };
+    return &i;
+}
+
+
+
 
 #ifdef MUSTACHE_SYSTEM_TESTS
-#include <stdio.h>
 
 
 static void mustache_print_list(mustache_param* ____, int depth)
@@ -2915,20 +3172,25 @@ void mustache_print_node(mustache_param* node, int depth)
     if (node->type == MUSTACHE_PARAM_LIST) {
         if (node->name.u) {
             if (node->name.len) {
-                printf("\"%.*s\": [\n", node->name.len, node->name.u);
+                printf("\"%.*s\": ", node->name.len, node->name.u);
             }
-            mustache_print_list(node, depth);
-
-            for (int i = 0; i < depth; ++i) {
-                printf("   ");
-            }
-            printf("]");
         }
+        printf("[\n");
+
+        mustache_print_list(node, depth);
+
+        for (int i = 0; i < depth; ++i) {
+            printf("   ");
+        }
+        printf("]");
     }
     else if (node->type == MUSTACHE_PARAM_OBJECT) {
+
         if (node->name.len) {
-            printf("\"%.*s\": {\n", node->name.len, node->name.u);
+            printf("\"%.*s\": ", node->name.len, node->name.u);
         }
+        printf("{\n");
+
         mustache_print_object(node, depth);
 
         for (int i = 0; i < depth; ++i) {
@@ -3015,6 +3277,14 @@ void mustache_dbg_print_structure_chain(mustache_structure* __structure, int32_t
             for (int i = 0; i < param_count; ++i)
             {
                 mustache_param* p = params[i];
+
+                // if (s->type==STRUCTURE_TYPE_VAR) {
+                //     structure_vars *sv = (structure_vars*)sv;
+                //     if (sv->param_infos) {
+
+                //     }
+                // }
+
                 PARAM_FLAGS pflag=0;
                 if (param_infos) {
                     structure_parameter_info* pi = param_infos+i;
@@ -3024,7 +3294,11 @@ void mustache_dbg_print_structure_chain(mustache_structure* __structure, int32_t
                 if (pflag&PARAM_FLAG_FUNCTION_LEN) {
                     printf("len(");
                 }
-                printf("'%.*s'",p->name.len, p->name.u);
+                if (!pflag&PARAM_FLAG_IS_DOT) {
+                    printf("'%.*s'",p->name.len, p->name.u);
+                } else {
+                    printf("/is_dot/");
+                }
                 if (pflag&PARAM_FLAG_FUNCTION_LEN) {
                     printf(")");
                 }
@@ -3048,12 +3322,10 @@ void mustache_dbg_print_structure_chain(mustache_structure* __structure, int32_t
             structure_conditional* cc = (structure_conditional*)s;
             child = cc->children;
         }
-        while (child)
+        if (child)
         {
             mustache_dbg_print_structure_chain((mustache_structure*)child, tab_depth+1);
-            child=child->pNext;
         }
-
         s=s->pNext;
     }
 }
