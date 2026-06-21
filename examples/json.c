@@ -103,6 +103,7 @@ int main()
 
             if (r!=0) {
                 printf("FAIL\n");
+                free(json_info.buffer);
                 return r;
             }
             printf("OK\n");
@@ -113,6 +114,10 @@ int main()
     mustache_print_parameter_list(json_info.first_param);
 
     mustache_JSON_free(&parser, &json_info);
+
+    if (!json_info.use_parser_alloc_free && json_info.buffer) {
+        free(json_info.buffer);
+    }
 
     return res;
 }

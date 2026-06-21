@@ -6,6 +6,7 @@
 
 #define SEGMENT_INPUT_BUFFER_LEN 256
 
+uint8_t PARSER_STRUCTURE_BUFFER[65536];
 typedef struct 
 {
     void* block;
@@ -15,7 +16,8 @@ typedef struct
                         //  char** parsed_template, will be set to this value
     size_t parsed_data_len;
 } parser_udata;
-parser_udata parserudata;
+parser_udata parserudata = (parser_udata){ .block = PARSER_STRUCTURE_BUFFER, .size = 0, .capacity = sizeof(PARSER_STRUCTURE_BUFFER)};
+
 
 typedef struct
 {
@@ -31,8 +33,9 @@ void* parser_alloc(mustache_parser* parser, size_t bytes) {
     if (udata->size + bytes > udata->capacity) {
         return NULL;
     }
+    uint8_t*p= (uint8_t*)udata->block + udata->size;
     udata->size += bytes;
-    return (uint8_t*)udata->block + udata->size - bytes;
+    return p;
 }
 
 
@@ -44,6 +47,7 @@ void parser_free(mustache_parser* parser, void* b) {
 
 
 mustache_structure struct_chain = {0};
+
 mustache_parser parser = {
     .alloc = parser_alloc,
     .free = parser_free,
@@ -138,11 +142,10 @@ MUSTACHE_RES parse_template(const char* template_source, char** parsed_template,
     uint8_t PARSER_INPUT_BUFFER[4096];
     uint8_t PARSER_BUFFER_PADDING[1024]; // THIS ONLY EXISTS FOR DEBUGGING PURPOSES, IT CAN SAFELY BE REMOVED
     memset(PARSER_BUFFER_PADDING, 0xFF,sizeof(PARSER_BUFFER_PADDING));
-    uint8_t PARSER_OUTPUT_BUFFER[8192];
+    uint8_t PARSER_OUTPUT_BUFFER[2*8192]; // this buffer will be populated on calls to parser.alloc
     uint8_t PARENT_STACK_BUFFER[2048];
 
-    uint8_t PARSER_STRUCTURE_BUFFER[65536];
-    parserudata = (parser_udata){ .block = PARSER_STRUCTURE_BUFFER, .size = 0, .capacity = sizeof(PARSER_STRUCTURE_BUFFER)};
+
     streamudata = (stream_udata){ .data = template_source, .cur = 0, .len = strlen(template_source) };
 
     parser_stream.readCallback = stream_read_callback;
@@ -150,7 +153,7 @@ MUSTACHE_RES parse_template(const char* template_source, char** parsed_template,
     parser.err_callback = parser_err_callback;
     parser.warn_callback = parser_warn_callback;
 
-
+    *parsed_template_length=0;
     *parsed_template = NULL;
 
     MUSTACHE_RES m = mustache_parse_stream(
@@ -261,8 +264,6 @@ MUSTACHE_RES parse_template_segmented(const char* template_source, char** parsed
     uint8_t PARSER_OUTPUT_BUFFER[SEGMENT_INPUT_BUFFER_LEN*4];
     uint8_t PARENT_STACK_BUFFER[1024];
 
-    uint8_t PARSER_STRUCTURE_BUFFER[65536];
-    parserudata = (parser_udata){ .block = PARSER_STRUCTURE_BUFFER, .size = 0, .capacity = sizeof(PARSER_STRUCTURE_BUFFER), NULL, 0};
     streamudata = (stream_udata){ .data = template_source, .cur = 0, .len = strlen(template_source) };
 
     parser_stream.readCallback = segmented_stream_read_callback;
@@ -306,8 +307,9 @@ MUSTACHE_RES parse_template_segmented(const char* template_source, char** parsed
 
 MUSTACHE_RES free_template(char* parsed_template)
 {
+    printf("todo: implement mustache_structure_chain_free\n");
     //mustache_structure_chain_free(&parser, &struct_chain);
-    free(parsed_template);
+    //free(parsed_template);
     return MUSTACHE_SUCCESS;
 }
 

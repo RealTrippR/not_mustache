@@ -3,12 +3,19 @@ const char* TEMPLATE =
 "foreach on lists\n"
 "{{#people}}\n"
 "--\n"
-" + {{.name}}\n"
-" + {{.age}}\n"
+//" + {{.name}}\n"
+//" + {{.age}}\n"
+" + {{.info.address}}\n"
 "--"
-"{{/}}\n";
-// "and conditionals: {(str)}\n"
+"{{/}}"
 
+"Foreach loops can only be used on parent parameters, of which there are two types: list and object.\n"
+"Children can be indexed with bracket notation '[x]', where x is an integer, the first index starting at 0."
+"If the value is negative, it will be an backwards offset beginning at the last element of the array, starting at -1. (i.e. [-1] would be the last element, [-2] is second to last, etc.)\n"
+"The list and object types are near-identical to each other, the only difference being that objects can be indexed by a constant"
+"string, or dot notation.";
+
+//"The first person is: {{people[0]}}";
 
 #include "example_common.h"
 
@@ -22,21 +29,21 @@ int main()
     const char *json = "{\n"
     "   \"people\": [\n"
     "       {\"name\":\"Dennis\", \"age\": 20, \"hobbies\": [\"hiking\",\"programming\",\"guitar\",\"CS2 -_-\"], \"info\": {\"address\": \"123 main street.\"} },\n"
-    "       {\"name\":\"Audrey\", \"age\": 18, \"hobbies\": [\"knitting\",\"cross-country\"]},\n"
-    "       {\"name\":\"Jonathan\", \"age\": 19, \"hobbies\": [\"art\",\"bmx\",\"football\"]},\n"
-    "       {\"name\":\"Noah\", \"age\": 21, \"hobbies\": [\"cooking\"]},\n"
-    "       {\"name\":\"Grace\", \"age\": 20, \"hobbies\": [\"sketching\", \"piano\"]},\n"
+    "       {\"name\":\"Audrey\", \"age\": 18, \"hobbies\": [\"knitting\",\"cross-country\"], \"info\": {\"address\": \"124 main street.\"} },\n"
+    "       {\"name\":\"Jonathan\", \"age\": 19, \"hobbies\": [\"art\",\"bmx\",\"football\"], \"info\": {\"address\": \"125 main street.\"} },\n"
+    "       {\"name\":\"Noah\", \"age\": 21, \"hobbies\": [\"cooking\"], \"info\": {\"address\": \"126 main street.\"} },\n"
+    "       {\"name\":\"Grace\", \"age\": 20, \"hobbies\": [\"sketching\", \"piano\"], \"info\": {\"address\": \"127 main street.\"} }\n"
     "   ]\n"
     "}\0JSON_END";
 
 
     mustache_json_info json_info = {
-        .copy_strings = 1,
-        .use_parser_alloc_free = 0,
+        .copy_strings = true,
+        .use_parser_alloc_free = true,
         .parser = &parser,
         .numinfo = {
             .max_decimals = 15,
-            .trim_zeros = 0
+            .trim_zeros = false
         }
     };
 
@@ -48,32 +55,9 @@ int main()
         return r;
     }
     printf("OK\n");
-    /* the buffer size will be set the number of bytes
-    needed to hold the parameters and any associated data 
-    on the first call to mustache_json. */
-
-    if (!json_info.use_parser_alloc_free) {
-        if (json_info.buffer_size) {
-            json_info.buffer = malloc(json_info.buffer_size);
-            if (!json_info.buffer) {
-                printf("FAIL: BAD ALLOCATION.\n");
-                return MUSTACHE_ERR_ALLOC;
-            }
-            
-            MUSTACHE_RES r = mustache_JSON(&parser, (mustache_const_slice){json,strlen(json)}, &json_info);
-
-            if (r!=0) {
-                printf("FAIL\n");
-                return r;
-            }
-            printf("OK\n");
-        }
-    }
-
 
     mustache_print_parameter_list(json_info.first_param);
 
-    mustache_JSON_free(&parser, &json_info);
 
     const mustache_param_list *people = ((mustache_param_object*)json_info.first_param)->pMembers;
 
@@ -99,6 +83,9 @@ bail:
         free_template(parsed_template);
         parsed_template = NULL;
     }
+    
+
+    mustache_JSON_free(&parser, &json_info);
 
     return res;
 }

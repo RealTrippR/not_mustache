@@ -1357,7 +1357,11 @@ static const char* get_mustache_label_end(const char* stache, const char* input_
 
 
 
-mustache_param* get_parameter_by_name(mustache_parser* parser, mustache_param* proot, parent_stack* pstack, MUSTACHE_PARAM_TYPE param_type_mask, const char* ni_first, const char* ni_end) 
+// statement_end would be end of a . chain statement
+// i.e. {{.var.var.var}}
+// the statement_end would be the '}', and on the first call the ni_end would be the second '.', just after var.
+// statement_end will be ignored if it is NULL, and so will dot chaining.
+mustache_param* get_parameter_by_name(mustache_parser* parser, mustache_param* proot, parent_stack* pstack, MUSTACHE_PARAM_TYPE param_type_mask, const char* ni_first, const char* ni_end, const char* statement_end) 
 {
 
     // NOTE: the preceding DOT count is NOT the same as the one if foreach loops, this is only for parameters that belong to objects 
@@ -1449,9 +1453,13 @@ mustache_param* get_parameter_by_name(mustache_parser* parser, mustache_param* p
         return NULL;
     }
 
-    if (*n_end == '.') {
+    if (*n_end == '.' && statement_end) {
         parent_stack_push(parser, pstack, param, NULL, NULL);
-        param = get_parameter_by_name(parser, proot, pstack, MUSTACHE_PARAM_ALL_BITS, n_first+1, ni_end);
+
+        const char* nxt_end=ni_end+1;
+        for (; *nxt_end != '.' && nxt_end < statement_end; nxt_end++){}
+
+        param = get_parameter_by_name(parser, proot, pstack, MUSTACHE_PARAM_ALL_BITS, ni_end, nxt_end, statement_end);
         parent_stack_pop(pstack);
     }
 
@@ -1551,7 +1559,7 @@ static MUSTACHE_RES create_structure_foreach(mustache_parser* parser, mustache_p
     const char* parameter_first = interior+1; 
     const char* parameter_end = interior_end;
     // resolve parameter name ()
-    mustache_param* parameter = get_parameter_by_name(parser, proot, pstack, MUSTACHE_PARAM_OBJECT | MUSTACHE_PARAM_LIST, parameter_first, parameter_end);
+    mustache_param* parameter = get_parameter_by_name(parser, proot, pstack, MUSTACHE_PARAM_OBJECT | MUSTACHE_PARAM_LIST, parameter_first, parameter_end, NULL);
     if (!parameter) {
         snprintf(warn_msg, sizeof(warn_msg), "parameter '%.*s' could not be resolved.", parameter_end-parameter_first,parameter_first);
         parser->warn_callback(parser, warn_msg, parameter_first, parameter_end);
@@ -1743,7 +1751,7 @@ static MUSTACHE_RES create_structure_vars(mustache_parser* parser, mustache_para
                 param_infos[i].untyped_a = (uint64_t)fe_parent;
                 param_infos[i].untyped_b = preceeding_dot_count;
             } else {
-                varparams[i] = get_parameter_by_name(parser, proot, pstack, MUSTACHE_PARAM_ALL_BITS, vinterior_begin, vinterior_end);
+                varparams[i] = get_parameter_by_name(parser, proot, pstack, MUSTACHE_PARAM_ALL_BITS, vinterior_begin, vinterior_end, NULL);
                 if (!varparams[i]) {
                     char warn_msg[256];
                     snprintf(warn_msg,sizeof(warn_msg), "failed to find parameter '%.*s'", var_end-var_begin, var_begin);
@@ -1996,7 +2004,7 @@ static mustache_param* structure_var_evaluate_dot_parameter(mustache_parser *par
     const char* end = pi->first;
     for (; *end != '.' && end < pi->end; end++){}
 
-    mustache_param* param = get_parameter_by_name(parser, NULL, pstack, MUSTACHE_PARAM_ALL_BITS, pi->first-1, end);
+    mustache_param* param = get_parameter_by_name(parser, NULL, pstack, MUSTACHE_PARAM_ALL_BITS, pi->first-1, end, pi->end);
 
 
     return param;
@@ -3083,7 +3091,6 @@ uint8_t mustache_JSON(mustache_parser* parser, mustache_const_slice JSON, mustac
     if (root_first) {
         mustache_param* root=NULL;
         parse_JSON_object(json_info, &root, root_first+1, end);
-        json_info->first_param = root;
 
         if (json_info->use_parser_alloc_free) {
             json_info->buffer = parser->alloc(parser, json_info->buffer_size);
@@ -3091,8 +3098,13 @@ uint8_t mustache_JSON(mustache_parser* parser, mustache_const_slice JSON, mustac
                 return MUSTACHE_ERR_ALLOC;
             }
 
+            
+            json_info->buffer_size = 0;
+            json_info->first_param = NULL;
+            json_info->cur=json_info->buffer;
             parse_JSON_object(json_info, &root, root_first+1, end);
         }
+        json_info->first_param = root;
         if (root) {
             root->name.u=NULL;
             root->name.len=0;
