@@ -1,21 +1,37 @@
 const char* TEMPLATE =
+// "{{people[0].name}}\n"
+// "{{people[1].name}}\n"
+// "{{people[2].name}}\n"
 "FOREACH EXAMPLE\n"
 "foreach on lists\n"
 "{{#people}}\n"
 "--\n"
 //" + {{.name}}\n"
 //" + {{.age}}\n"
-" + {{.info.address}}\n"
-"--"
+//" + {{.info.address}}\n"
+" + Hobbies: +\n"
+"   {{#.hobbies}}\n"
+"   {{..name}}'s Hobby:\n"
+//"   {{.}}\n"
+"   {{/}}"
+"\n--\n"
 "{{/}}"
+"god help me."
+"\n"
+// "Foreach loops can only be used on parent parameters, of which there are two types: list and object.\n"
+// "Children can be indexed with bracket notation '[x]', where x is an integer, the first index starting at 0.\n"
+// "If the value is negative, it will be an backwards offset beginning at the last element of the array, starting at -1. (i.e. [-1] would be the last element, [-2] is second to last, etc.)\n"
+// "The list and object types are near-identical to each other, the only difference being that objects can be indexed by a constant"
+// "string literal, or via dot notation.\n"
+// "\n"
+// "{{people[0].name}}\n"
+// "For example, /{{people[0].name}}\n"
+// "The first person is: {{people[0].name}}\n"
+// "\n"
+// "or... /{{people[-1].name}}\n"
+// "The last person is: {{people[-1].name}}\n"
+"";
 
-"Foreach loops can only be used on parent parameters, of which there are two types: list and object.\n"
-"Children can be indexed with bracket notation '[x]', where x is an integer, the first index starting at 0."
-"If the value is negative, it will be an backwards offset beginning at the last element of the array, starting at -1. (i.e. [-1] would be the last element, [-2] is second to last, etc.)\n"
-"The list and object types are near-identical to each other, the only difference being that objects can be indexed by a constant"
-"string, or dot notation.";
-
-//"The first person is: {{people[0]}}";
 
 #include "example_common.h"
 
@@ -29,10 +45,10 @@ int main()
     const char *json = "{\n"
     "   \"people\": [\n"
     "       {\"name\":\"Dennis\", \"age\": 20, \"hobbies\": [\"hiking\",\"programming\",\"guitar\",\"CS2 -_-\"], \"info\": {\"address\": \"123 main street.\"} },\n"
-    "       {\"name\":\"Audrey\", \"age\": 18, \"hobbies\": [\"knitting\",\"cross-country\"], \"info\": {\"address\": \"124 main street.\"} },\n"
-    "       {\"name\":\"Jonathan\", \"age\": 19, \"hobbies\": [\"art\",\"bmx\",\"football\"], \"info\": {\"address\": \"125 main street.\"} },\n"
-    "       {\"name\":\"Noah\", \"age\": 21, \"hobbies\": [\"cooking\"], \"info\": {\"address\": \"126 main street.\"} },\n"
-    "       {\"name\":\"Grace\", \"age\": 20, \"hobbies\": [\"sketching\", \"piano\"], \"info\": {\"address\": \"127 main street.\"} }\n"
+    //"       {\"name\":\"Audrey\", \"age\": 18, \"hobbies\": [\"knitting\",\"cross-country\"], \"info\": {\"address\": \"124 main street.\"} },\n"
+    //"       {\"name\":\"Grace\", \"age\": 19, \"hobbies\": [\"art\",\"bmx\",\"football\"], \"info\": {\"address\": \"125 main street.\"} },\n"
+    //"       {\"name\":\"Noah\", \"age\": 21, \"hobbies\": [\"cooking\"], \"info\": {\"address\": \"126 main street.\"} },\n"
+    //"       {\"name\":\"Jonathan\", \"age\": 20, \"hobbies\": [\"sketching\", \"piano\"], \"info\": {\"address\": \"127 main street.\"} }\n"
     "   ]\n"
     "}\0JSON_END";
 
@@ -43,7 +59,7 @@ int main()
         .parser = &parser,
         .numinfo = {
             .max_decimals = 15,
-            .trim_zeros = false
+            .trim_zeros = true
         }
     };
 
@@ -59,7 +75,7 @@ int main()
     mustache_print_parameter_list(json_info.first_param);
 
 
-    const mustache_param_list *people = ((mustache_param_object*)json_info.first_param)->pMembers;
+    mustache_param_list *people = ((mustache_param_object*)json_info.first_param)->pMembers;
 
     
 

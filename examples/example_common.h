@@ -16,7 +16,7 @@ typedef struct
                         //  char** parsed_template, will be set to this value
     size_t parsed_data_len;
 } parser_udata;
-parser_udata parserudata = (parser_udata){ .block = PARSER_STRUCTURE_BUFFER, .size = 0, .capacity = sizeof(PARSER_STRUCTURE_BUFFER)};
+parser_udata parserudata = { .block = PARSER_STRUCTURE_BUFFER, .size = 0, .capacity = sizeof(PARSER_STRUCTURE_BUFFER)};
 
 
 typedef struct
@@ -307,9 +307,9 @@ MUSTACHE_RES parse_template_segmented(const char* template_source, char** parsed
 
 MUSTACHE_RES free_template(char* parsed_template)
 {
-    printf("todo: implement mustache_structure_chain_free\n");
+    printf("\ntodo: implement mustache_structure_chain_free\n");
     //mustache_structure_chain_free(&parser, &struct_chain);
-    //free(parsed_template);
+    free(parsed_template);
     return MUSTACHE_SUCCESS;
 }
 

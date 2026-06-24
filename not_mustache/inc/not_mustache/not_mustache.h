@@ -190,6 +190,7 @@ typedef struct {
     MUSTACHE_PARAM_TYPE type;
     mustache_const_slice name;
     void* pMembers; // a pointer to a linked list of mustache parameter objects 
+    size_t memberCount;
 } mustache_param_object;
 
 typedef struct {

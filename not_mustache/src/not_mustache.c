@@ -49,13 +49,23 @@ form of Artificial Intelligence.
 #define alloca(N) __builtin_alloca(N)
 #endif 
 
+#ifdef __GNUC__ 
 #define static_assert(cnd, descr) ({ \
     extern int __attribute__ ((error("static assert failed: (" #cnd ") (" #descr ")"))) \
                compile_time_check(void); \
     ((cnd) ? 0 : compile_time_check()), 0; \
 })
+#endif // __GNUC__ 
+#ifdef _MSC_VER 
+#define static_assert(x,u) (void)("Fuck MSVC")
+#endif // _MSC_VER 
 
+
+
+
+#ifndef min
 #define min(X, Y) ((X) < (Y) ? (X) : (Y))
+#endif
 #define array_count(A) (sizeof(A)/sizeof(A[0]))
 
 typedef enum {
@@ -81,15 +91,18 @@ typedef enum {
 typedef struct structure structure;
 
 typedef struct {
-    mustache_slice buf;
-    uint32_t count;
-    uint32_t MAX_COUNT;
-    structure* psclast; // ptr to the last structure
-    structure** ppscnext_of_psc_last; // ptr to the plast ptr of the psclast object
-                                // since the head of a structure chain could be the
-                                // child structure ptr of a parent object, 
-                                // memory layout of the pNext is not homogenous
-                                // across all structures!
+    mustache_slice  buf;
+    uint32_t        count;
+    uint32_t        MAX_COUNT;
+    //structure       *psclast; // ptr to the last structure
+    //structure       **ppscnext_of_psc_last; // ptr to the plast ptr of the psclast object
+                                            // since the head of a structure chain could be the
+                                            // child structure ptr of a parent object, 
+                                            // memory layout of the pNext is not homogenous
+                                            // across all structures!
+    structure       *psclast0; // for a push in the condition where count=0, the psclast is saved here
+    structure       **ppscnext_of_psc_last0; // for a push in the condition where count=0, the ppscnext_of_psc_last0 is saved here 
+
     uint32_t total_dot_param_count;
 } parent_stack;
 
@@ -121,18 +134,21 @@ static parent_stack_block* parent_stack_push(mustache_parser *parser, parent_sta
         parser->err_callback(parser,err_msg,NULL,NULL);
         return NULL;
     }
-    if (pstack->count!=0) {
-        // store the psclast / ppscnext_of_psc_last of the previous head
-        parent_stack_block* b = ((parent_stack_block*)pstack->buf.u)+pstack->count-1;
-        b->psclast = pstack->psclast;
-        b->ppscnext_of_psc_last = (structure**)pstack->ppscnext_of_psc_last;
-    }
+    // if (pstack->count!=0) {
+    //     // // store the psclast / ppscnext_of_psc_last of the previous head
+    //     parent_stack_block* b = ((parent_stack_block*)pstack->buf.u)+pstack->count-1;
+    //     b->psclast = pstack->psclast;
+    //     b->ppscnext_of_psc_last = (structure**)pstack->ppscnext_of_psc_last;
+    // } else {
+    //     pstack->psclast0 = pstack->psclast;
+    //     pstack->ppscnext_of_psc_last0 = pstack->ppscnext_of_psc_last;
+    // }
     parent_stack_block* b = ((parent_stack_block*)pstack->buf.u)+pstack->count;
     pstack->count++;
     b->parent = parent;
     b->param = parent_param;
-    pstack->psclast = NULL;
-    pstack->ppscnext_of_psc_last = (structure**)sc_chain_child_root;
+    b->psclast = NULL;
+    b->ppscnext_of_psc_last = (structure**)sc_chain_child_root;
     
     return b;
 }
@@ -143,8 +159,14 @@ static MUSTACHE_RES parent_stack_pop(parent_stack *pstack) {
     }
     pstack->count--;
     parent_stack_block* b = ((parent_stack_block*)pstack->buf.u)+pstack->count;
-    pstack->psclast = b->psclast;
-    pstack->ppscnext_of_psc_last = b->ppscnext_of_psc_last;
+    // if (pstack->count==0) {
+    //     pstack->psclast = pstack->psclast0;
+    //     pstack->ppscnext_of_psc_last = pstack->ppscnext_of_psc_last0;
+      
+    // } else {
+    //     pstack->psclast = b->psclast;
+    //     pstack->ppscnext_of_psc_last = b->ppscnext_of_psc_last;
+    // }
     return MUSTACHE_SUCCESS;
 }
 
@@ -166,6 +188,11 @@ static mustache_param* get_pstack_child_by_index(parent_stack *pstack, uint32_t 
     parent_stack_block* b = ((parent_stack_block*)pstack->buf.u)+pstack->count-1-dotcount;
     mustache_param* parent_param = b->param;
     child = mustache_parameter_get_child_list(parent_param, &max_children);
+
+    if (idx<0) {
+        idx=max_children+idx;
+    }
+
     uint32_t i = 0;
     while (child && i < max_children)
     {
@@ -294,7 +321,7 @@ typedef struct structure_var {
     uint16_t parameter_count;
     mustache_param** parameters;    // an array of ptrs to parameters.
                                     // if one of these parameters is a dot parameter,
-                                    // it is actually a ptr to the index of the first
+                                    // it is actually an index of the first
                                     // dot parameter  of this var in the foreach parent.
                                     // the dot parameter for the current loop can be 
                                     // accessed by:
@@ -302,12 +329,18 @@ typedef struct structure_var {
 
     structure_parameter_info* param_infos;
 } structure_vars;
+
+
+
+typedef struct structure_foreach structure_foreach;
 typedef struct structure_foreach {
     structure* pNext; // BASE
     structure* pLast; // BASE
     STRUCTURE_TYPE type; // BASE
     const char* first; // BASE // ptr to the label
     uint16_t label_length; // the length of the label (opening mustache line), = len("{{#name}}")
+
+    PARAM_FLAGS flags;
 
     uint32_t content_length; // the length of the interior content [beginning at the first char after the label, and ending the at the first char before the end_label]
     uint32_t end_label_length; // the length of the end label (closing mustache line), = len("{{/}}"
@@ -317,12 +350,15 @@ typedef struct structure_foreach {
     structure* children; // child structures
 
     mustache_param* param; // the parent object to search in the foreach loop
-    mustache_param** dot_params;
+    mustache_param** dot_params; // before buffer intitialization, this holds the number of dot parameters.
 
     union {
         uint32_t cur_dot_index;
         uint32_t cur_param_index;
     };
+
+    // these are only valid if flags&PARAM_FLAG_DOT
+    structure_foreach*   dotfe_parent;
 } structure_foreach;
 
 typedef struct structure_conditional {
@@ -356,14 +392,24 @@ static STRUCTURE_TYPE is_structure_parent(structure* s) {
     return STRUCTURE_TYPE_NONE;
 }
 
-static void parent_stack_add_to_schain(parent_stack *pstack, structure *sc, void **pnext_of_sc)
+static void parent_stack_add_to_schain(parent_stack *pstack, uint32_t pcount, structure *sc, void **pnext_of_sc)
 {
-    if (pstack->ppscnext_of_psc_last) {
-        *pstack->ppscnext_of_psc_last = sc; 
+    if (pcount>0) {
+        parent_stack_block* b = (parent_stack_block*)pstack->buf.u + pcount-1;
+        if (b->ppscnext_of_psc_last) {
+            *b->ppscnext_of_psc_last = sc; 
+        }
+        sc->pLast = b->psclast;
+        b->psclast = sc;
+        b->ppscnext_of_psc_last = (structure**)pnext_of_sc;
+    } else {
+        if (pstack->ppscnext_of_psc_last0) {
+            *pstack->ppscnext_of_psc_last0 = sc; 
+        }
+        sc->pLast = pstack->psclast0;
+        pstack->psclast0 = sc;
+        pstack->ppscnext_of_psc_last0 = (structure**)pnext_of_sc;
     }
-    sc->pLast = pstack->psclast;
-    pstack->psclast = sc;
-    pstack->ppscnext_of_psc_last = (structure**)pnext_of_sc;
 }
 
 
@@ -378,7 +424,7 @@ mustache_param* mustache_parameter_get_child_list(mustache_param* param, uint32_
     }
     if (param->type == MUSTACHE_PARAM_OBJECT) {
         mustache_param_object* o = (mustache_param_object*)param;
-        *max_child_count = UINT32_MAX;
+        *max_child_count = o->memberCount;
         return o->pMembers;
     }
     return NULL;
@@ -1060,7 +1106,6 @@ static uint8_t* dtoa(double value, uint8_t* buf, size_t size, uint16_t precision
     long long int_part = (long long)value;
     double frac_part = value - (double)int_part;
 
-    /* Write integer part */
     int written = i64toa(int_part, buf);
     if (written < 0 || written >= (int)size) return buf;
 
@@ -1085,16 +1130,13 @@ static uint8_t* dtoa(double value, uint8_t* buf, size_t size, uint16_t precision
             frac_len--;
     }
 
-    /* skip '.' if no frac. digits remain */
     if (frac_len == 0)
         return buf;
 
-    /* '.' */
     if (size < 2) return buf;
     *buf++ = '.';
     size--;
 
-    /* write fractional digits */
     uint8_t i_8;
     for ( i_8= 0; i_8 < frac_len && size > 1; i_8++) {
         *buf++ = frac_buf[i_8];
@@ -1318,7 +1360,7 @@ static SCOPED_TYPE is_mustache_label_scoped(const char* stache, const char* stac
 {
     const char* interior = stache+2;
 
-    if (stache[1] == '(' && stache[2] == '#') {
+    if ((stache[1] == '(' || stache[1] == '{') && stache[2] == '#') {
         return SCOPED_TYPE_HEADER;
     }
 
@@ -1361,7 +1403,7 @@ static const char* get_mustache_label_end(const char* stache, const char* input_
 // i.e. {{.var.var.var}}
 // the statement_end would be the '}', and on the first call the ni_end would be the second '.', just after var.
 // statement_end will be ignored if it is NULL, and so will dot chaining.
-mustache_param* get_parameter_by_name(mustache_parser* parser, mustache_param* proot, parent_stack* pstack, MUSTACHE_PARAM_TYPE param_type_mask, const char* ni_first, const char* ni_end, const char* statement_end) 
+mustache_param* get_parameter_by_name(mustache_parser* parser, mustache_param* proot, parent_stack* pstack, const char* ni_first, const char* ni_end, const char* statement_end) 
 {
 
     // NOTE: the preceding DOT count is NOT the same as the one if foreach loops, this is only for parameters that belong to objects 
@@ -1393,7 +1435,8 @@ mustache_param* get_parameter_by_name(mustache_parser* parser, mustache_param* p
     }
     
     // dots must be followed by a parameter name
-    if (n_cur==ni_end) {return NULL;}
+    if (n_cur==ni_end) {
+        return NULL;}
     // traverse up the parent stack until the desired object is found
 
     if (preceding_dot_count>pstack->count) {
@@ -1438,13 +1481,12 @@ mustache_param* get_parameter_by_name(mustache_parser* parser, mustache_param* p
 
     mustache_param* param;
     // get the parameter off the parent stack
-    if (preceding_dot_count>0) {
-        if (is_indexed_parameter) {
-            int32_t idx = strtoi32(n_first, n_end-n_first, NULL);
-            param = get_pstack_child_by_index(pstack, preceding_dot_count, idx);
-        } else {
-            param = get_pstack_child_by_name(pstack, preceding_dot_count, n_first, n_end);
-        }
+    if (is_indexed_parameter) {
+        int32_t idx = strtoi32(n_first, n_end-n_first, NULL);
+        param = get_pstack_child_by_index(pstack, preceding_dot_count, idx);
+    }
+    else if (preceding_dot_count>0) {
+        param = get_pstack_child_by_name(pstack, preceding_dot_count, n_first, n_end);
     } else {
         param = get_root_child_by_name(proot, n_first, n_end);
     }
@@ -1453,14 +1495,37 @@ mustache_param* get_parameter_by_name(mustache_parser* parser, mustache_param* p
         return NULL;
     }
 
-    if (*n_end == '.' && statement_end) {
-        parent_stack_push(parser, pstack, param, NULL, NULL);
 
-        const char* nxt_end=ni_end+1;
-        for (; *nxt_end != '.' && nxt_end < statement_end; nxt_end++){}
+    // get any dots, opening brackets '[' after
+    // the index notation, i.e. '[x].something', '[x][y]', etc
+    if (is_indexed_parameter) {
+        n_end=ni_end;
+        while (n_end < ni_end)
+        {
+            if (*n_end == '.' || *n_end == '[') {
+                break;
+            }
+            n_end++;
+        }
+    }
 
-        param = get_parameter_by_name(parser, proot, pstack, MUSTACHE_PARAM_ALL_BITS, ni_end, nxt_end, statement_end);
-        parent_stack_pop(pstack);
+    if (statement_end) {
+        if (*n_end == '.' || *n_end == '[') {
+            parent_stack_push(parser, pstack, param, NULL, NULL);
+
+            const char* nxt_end=NULL;
+            if (*ni_end=='.') {
+                nxt_end=ni_end+1;
+                for (; *nxt_end != '.' && *nxt_end  != '[' && nxt_end < statement_end; nxt_end++){}
+            } else {
+                ni_end=n_end;
+                nxt_end=n_end+1;
+                for (; *nxt_end != '.' && *nxt_end  != '[' && nxt_end < statement_end; nxt_end++){}
+            }
+
+            param = get_parameter_by_name(parser, proot, pstack, ni_end, nxt_end, statement_end);
+            parent_stack_pop(pstack);
+        }
     }
 
     return param;
@@ -1486,8 +1551,7 @@ static void scoped_label_get_end(const char* parameter_name, const char* paramet
             if (stype==SCOPED_TYPE_HEADER) {
                 depth++;
             }
-
-            if (lend && cur[2]=='/') {
+            else if (lend && cur[2]=='/') {
                 // closing stache
                 const char* stache_end = get_mustache_label_end(cur, src_end);
                 if (stache_end) {
@@ -1553,25 +1617,164 @@ static uint32_t structure_foreach_get_number_of_dot_params(const char* interior_
 }
 
 
+uint32_t get_retrospective_dot_count_traverse_up(mustache_parser *parser, parent_stack *pstack, structure_foreach *fe, mustache_param **param) {
+    uint32_t dotparamcount=0;
+
+
+    uint32_t pcount = 0;
+    if (fe->flags & PARAM_FLAG_IS_DOT) {
+        *param = NULL;
+
+        structure_foreach* fe_p = fe->dotfe_parent;
+        mustache_param* fe_p_param;
+        pcount = get_retrospective_dot_count_traverse_up(parser, pstack, fe_p, &fe_p_param);
+
+        uint32_t fe_parent_dotcount=0;
+
+        // evaluate dot parameter
+        mustache_param* paramlist = mustache_parameter_get_child_list(fe_p_param, &fe_parent_dotcount);
+
+        const char* int_f = fe->first+3;
+        const char* int_e = fe->first+fe->label_length-2;
+
+
+        uint32_t i =0;
+        uint32_t self_dotcount=0;
+        while (paramlist && i++ < fe_parent_dotcount)
+        {
+            parent_stack_push(parser,pstack,paramlist,(structure*)fe_p,NULL);
+            mustache_param* p = get_parameter_by_name(parser, NULL, pstack, int_f, int_e, int_e);
+            parent_stack_pop(pstack);
+
+
+
+            uint32_t p_childcount;
+            mustache_parameter_get_child_list(p, &p_childcount);
+
+            dotparamcount += p_childcount;
+            paramlist = paramlist->pNext;
+        }
+        
+
+
+
+        return dotparamcount;
+    } else {
+        // it is not a dot, and therefore has a parameter
+        *param = fe->param;
+
+        return 0;
+    }
+}
+
+uint32_t get_retrospective_dot_param_count(mustache_parser *parser, parent_stack *pstack, uint32_t fecount, parent_stack_block* block) {
+
+    // unwind the parent stack until the first foreach which is not a dot parameter is found
+    parent_stack_block* first = (void*)pstack->buf.u;
+    structure_foreach* fe = (void*)block->parent;
+    mustache_param* p;
+    return get_retrospective_dot_count_traverse_up(parser, pstack, fe, &p);
+    // while (block > first-1)
+    // {
+    //     if (block->parent->type==STRUCTURE_TYPE_FOREACH) {
+    //         structure_foreach* fe = (void*)block->parent;
+    //         if (!(fe->flags&PARAM_FLAG_IS_DOT)) {
+    //             uint32_t children;
+    //             mustache_parameter_get_child_list(fe->param, &children);
+    //             return get_retrospective_dot_param_count_traverse_down(pstack, 0, fecount - 1, block-first + 1, children);
+    //         }
+    //     }
+    //     block--;
+    // }
+}
+
+static mustache_param* get_foreach_parameter(structure_foreach* fe) {
+    if (fe->flags&PARAM_FLAG_IS_DOT) {
+        structure_foreach* fep = fe->dotfe_parent;
+        mustache_param*p= fep->dot_params[(uintptr_t)fe->param + fep->cur_param_index];
+        return p;
+    } else {
+        return fe->param;
+    }
+}
+
 static MUSTACHE_RES create_structure_foreach(mustache_parser* parser, mustache_param* proot, parent_stack* pstack,  structure_foreach* foreach, const char* label, const char* label_end, const char* interior, const char* interior_end, const char* src_end) 
 {
     char warn_msg[256];
     const char* parameter_first = interior+1; 
     const char* parameter_end = interior_end;
-    // resolve parameter name ()
-    mustache_param* parameter = get_parameter_by_name(parser, proot, pstack, MUSTACHE_PARAM_OBJECT | MUSTACHE_PARAM_LIST, parameter_first, parameter_end, NULL);
-    if (!parameter) {
-        snprintf(warn_msg, sizeof(warn_msg), "parameter '%.*s' could not be resolved.", parameter_end-parameter_first,parameter_first);
-        parser->warn_callback(parser, warn_msg, parameter_first, parameter_end);
-        return MUSTACHE_ERR_NONEXISTENT;
-    }
 
+    mustache_param* parameter;
+
+    // first, check if it is a dot parameter
+    if (*parameter_first=='.') {
+        
+
+        
+        uint32_t preceeding_dot_count = 0;
+        while (*parameter_first == '.')
+        {
+            preceeding_dot_count++;
+            parameter_first++;
+        }
+
+
+
+        uint32_t bc=0;
+        // traverse up the parent stack until n foreach loops are found
+        parent_stack_block *b = (parent_stack_block*)pstack->buf.u + (pstack->count);
+        while ((uint8_t*)b > pstack->buf.u)
+        {
+            b--;
+
+            if (b->parent->type==STRUCTURE_TYPE_FOREACH) {
+                bc++;
+            }
+            if (bc==preceeding_dot_count) {
+                break;
+            }
+        }
+        if (bc != preceeding_dot_count) {
+            char err_msg[256];
+            if (bc==0) {
+                snprintf(err_msg,sizeof(err_msg), "A parameter can only be preceded by a '.' if it is within a foreach loop.", label,label_end);
+                parser->err_callback(parser,err_msg,interior,interior_end);
+            } else {
+                snprintf(err_msg,sizeof(err_msg), "requested foreach parent depth exceeds the actual depth.", label,label_end);
+                parser->err_callback(parser,err_msg,interior,interior_end);
+            }
+            return MUSTACHE_ERR_INVALID_TEMPLATE;
+        }
+        
+
+
+        foreach->flags |= PARAM_FLAG_IS_DOT;
+
+        structure_foreach *fe_parent = (structure_foreach*)b->parent;
+        
+        uint32_t b_child_count=0;
+        mustache_parameter_get_child_list(fe_parent->param,&b_child_count);
+        pstack->total_dot_param_count += b_child_count;
+
+        //it must be cast to a uint8_t, otherwise the count value won't work properly, bc it will add sizeof(structure_foreach)!
+        *((uint8_t**)&fe_parent->dot_params) += b_child_count;
+
+        foreach->dotfe_parent = fe_parent;
+
+        parameter = NULL;
+    } else {
+        // resolve parameter name ()
+        parameter = get_parameter_by_name(parser, proot, pstack, parameter_first, parameter_end, NULL);
+        if (!parameter) {
+            snprintf(warn_msg, sizeof(warn_msg), "parameter '%.*s' could not be resolved.", (int)(parameter_end-parameter_first),parameter_first);
+            parser->warn_callback(parser, warn_msg, parameter_first, parameter_end);
+            return MUSTACHE_ERR_NONEXISTENT;
+        }
+    }
 
     const char *scoped_label;
     const char *scoped_end;
     scoped_label_get_end(interior, interior_end, label_end, src_end, &scoped_label, &scoped_end);
-
-
 
     foreach->first = label;
     
@@ -1608,6 +1811,8 @@ FUNCTION_TYPE is_slice_function(const char* begin, const char* end, const char**
 
     return FUNCTION_TYPE_NONE;
 }
+
+
 
 static MUSTACHE_RES create_structure_vars(mustache_parser* parser, mustache_param* proot, parent_stack* pstack, structure_vars* vars, const char* interior, const char* interior_end) 
 {
@@ -1692,8 +1897,7 @@ static MUSTACHE_RES create_structure_vars(mustache_parser* parser, mustache_para
 
             if (*vinterior_begin=='.')   // this is a special case, which is only valid within foreach loops!
             {
-             
- 
+                 
                 uint32_t preceeding_dot_count = 0;
                 while (*vinterior_begin == '.')
                 {
@@ -1742,8 +1946,20 @@ static MUSTACHE_RES create_structure_vars(mustache_parser* parser, mustache_para
                 structure_foreach *fe_parent = (structure_foreach*)b->parent;
                 
                 uint32_t b_child_count=0;
-                mustache_parameter_get_child_list(fe_parent->param,&b_child_count);
-                pstack->total_dot_param_count += b_child_count;
+                if (!fe_parent->param) {
+                    if (bc > 0) {
+                        uint32_t dpc = get_retrospective_dot_param_count(parser, pstack, bc, b);
+                        pstack->total_dot_param_count += dpc;
+                        *((uint8_t**)&fe_parent->dot_params) += dpc;
+                        
+                    } else {
+                        return MUSTACHE_ERR;
+                    }
+                } else {
+                    mustache_parameter_get_child_list(fe_parent->param,&b_child_count);
+                    pstack->total_dot_param_count += b_child_count;
+                    *((uint8_t**)&fe_parent->dot_params) += b_child_count;
+                }
                 // it must be cast to a uint8_t, otherwise the count value won't work properly, bc it will add sizeof(structure_foreach)!
                 //*((uint8_t**)&fe_parent->dot_params) += preceeding_dot_count;
 
@@ -1751,7 +1967,7 @@ static MUSTACHE_RES create_structure_vars(mustache_parser* parser, mustache_para
                 param_infos[i].untyped_a = (uint64_t)fe_parent;
                 param_infos[i].untyped_b = preceeding_dot_count;
             } else {
-                varparams[i] = get_parameter_by_name(parser, proot, pstack, MUSTACHE_PARAM_ALL_BITS, vinterior_begin, vinterior_end, NULL);
+                varparams[i] = get_parameter_by_name(parser, proot, pstack, vinterior_begin, vinterior_end, vars->first+vars->label_length-2);
                 if (!varparams[i]) {
                     char warn_msg[256];
                     snprintf(warn_msg,sizeof(warn_msg), "failed to find parameter '%.*s'", var_end-var_begin, var_begin);
@@ -1916,20 +2132,14 @@ static uint8_t source_to_structured(mustache_parser* parser, mustache_param* pro
 
                     label_structure->pNext = NULL;
                     
-                    // if (pstack->psclast) {
-                    //     *pstack->ppscnext_of_psc_last = label_structure;
-                    // }
-                    // last_struct->pLast = pstack->psclast;
-                    // pstack->psclast = label_structure;
-                    
                     if (rs) {
                         return rs;
                     }
 
-                    // this is required, because if it doesn't exist, the pNext of the parent will point to itself.
-                    if (old_pstack_count==pstack->count) {
-                        parent_stack_add_to_schain(pstack, label_structure, (void**)&label_structure->pNext);
-                    }
+                    // this is required, because if it doesn't exist, the pNext of the parent could be it's own child, thus trunacating the structure chain.
+                    //if (old_pstack_count==pstack->count) {
+                        parent_stack_add_to_schain(pstack, old_pstack_count, label_structure, (void**)&label_structure->pNext);
+                    //}
                 }
             } else {
 
@@ -1949,7 +2159,7 @@ static uint8_t source_to_structured(mustache_parser* parser, mustache_param* pro
                 escape_structure->pNext = NULL;
 
 
-                parent_stack_add_to_schain(pstack, escape_structure, (void**)&escape_structure->pNext);
+                parent_stack_add_to_schain(pstack, pstack->count, escape_structure, (void**)&escape_structure->pNext);
             }
         }
 
@@ -1969,23 +2179,71 @@ static uint8_t source_to_structured(mustache_parser* parser, mustache_param* pro
 
 
 // this assigns a slice of the dot parameter buffer to a foreach structure.
-static mustache_param** set_dot_param_buffers_of_foreach_structures(mustache_param** dot_param_buf_out, structure* schain) 
+static mustache_param** set_dot_param_buffers_of_foreach_structures(mustache_parser* parser, parent_stack *pstack, mustache_param** dot_param_buf, structure* schain) 
 {
     while (schain) {
         if (schain->type==STRUCTURE_TYPE_FOREACH) {
             structure_foreach *fe = (structure_foreach*)schain;
-            uint32_t fe_child_count=0;
-            mustache_parameter_get_child_list(fe->param, &fe_child_count);
 
-            fe->dot_params = dot_param_buf_out;
-            dot_param_buf_out += fe_child_count;
+            uint32_t dpc = (uint32_t)fe->dot_params;
+            // i'm pretty certain that the offset should be mulitpled by the nunber of child in the foreach 'fe' structure.
+            fe->dot_params = dot_param_buf;
+            dot_param_buf+=dpc;
 
-            dot_param_buf_out = set_dot_param_buffers_of_foreach_structures(dot_param_buf_out, fe->children);
+            dot_param_buf = set_dot_param_buffers_of_foreach_structures(parser, pstack, dot_param_buf, fe->children);
+
+            if (fe->flags & PARAM_FLAG_IS_DOT) {
+                //mustache_parameter_get_child_list(fe->param, &fe_child_count);
+
+
+                structure_foreach* fe_p = fe->dotfe_parent;
+                mustache_param* fe_p_param;
+
+                uint32_t fe_parent_dotcount=0;
+
+                // evaluate dot parameter
+                mustache_param* paramlist = mustache_parameter_get_child_list(get_foreach_parameter(fe_p), &fe_parent_dotcount);
+
+                const char* int_f = fe->first+3;
+                const char* int_e = fe->first+fe->label_length-2;
+
+
+                uint32_t i =0;
+                uint32_t self_dotcount=0;
+                while (paramlist && i++ < fe_parent_dotcount)
+                {
+                    parent_stack_push(parser,pstack,paramlist,(structure*)fe_p,NULL);
+                    mustache_param* p = get_parameter_by_name(parser, NULL, pstack, int_f, int_e, int_e);
+                    parent_stack_pop(pstack);
+
+
+                    // populate dot params, by index
+                    uint32_t childcount = 0;
+                    mustache_param* child_param = mustache_parameter_get_child_list(p, &childcount);
+                       
+                    uint32_t j = 0;
+                    while (child_param && j++ < childcount) {
+                        fe->dot_params[fe->cur_dot_index++] = child_param;
+                        child_param = child_param->pNext;
+                    }
+
+
+
+
+
+
+                    // uint32_t p_childcount;
+                    // mustache_parameter_get_child_list(p, &p_childcount);
+
+
+                    paramlist = paramlist->pNext;
+                }
+            }
         }
         schain=schain->pNext;
     }    
 
-    return dot_param_buf_out;
+    return dot_param_buf;
 }
 
 
@@ -1993,8 +2251,10 @@ static mustache_param** set_dot_param_buffers_of_foreach_structures(mustache_par
 static mustache_param* structure_var_evaluate_dot_parameter(mustache_parser *parser, parent_stack *pstack, structure_foreach *fe, uint32_t for_each_child_index, structure_parameter_info* pi)
 {
     // {{.}} case
-    if (pi->first==pi->end) {
-        return mustache_param_get_child_at_index(fe->param,for_each_child_index);}
+    if (pi->first == pi->end) {
+        mustache_param* p = get_foreach_parameter(fe);
+        return mustache_param_get_child_at_index(p, for_each_child_index);
+    }
 
     // first, find the parameter name
     // note that pi.first DOES not include the preceding dots,
@@ -2004,8 +2264,31 @@ static mustache_param* structure_var_evaluate_dot_parameter(mustache_parser *par
     const char* end = pi->first;
     for (; *end != '.' && end < pi->end; end++){}
 
-    mustache_param* param = get_parameter_by_name(parser, NULL, pstack, MUSTACHE_PARAM_ALL_BITS, pi->first-1, end, pi->end);
+    mustache_param* param = get_parameter_by_name(parser, NULL, pstack, pi->first-1, end, pi->end);
 
+
+    return param;
+}
+
+
+
+static mustache_param* structure_foreach_evaluate_dot_parameter(mustache_parser *parser, parent_stack *pstack, structure_foreach *fe_parent, uint32_t for_each_child_index, structure_foreach* fe)
+{
+    const char* int_first = fe->first+3;
+    // {{.}} case
+    if (fe->label_length==6 && *int_first=='.') {
+        return mustache_param_get_child_at_index(fe_parent->param,for_each_child_index);}
+
+    // first, find the parameter name
+    // note that pi.first DOES not include the preceding dots,
+    // it starts just after them. i.e, in {{..my_var}}
+    // first would point to the 'm' in ..my_var
+
+    const char* fe_int_end=fe->first+fe->label_length-2;
+    const char* end = int_first+1;
+    for (; *end != '.' && end < fe_int_end; end++){}
+
+    mustache_param* param = get_parameter_by_name(parser, NULL, pstack, int_first, end, fe_int_end);
 
     return param;
 }
@@ -2015,8 +2298,8 @@ static MUSTACHE_RES populate_dot_param_buffer(mustache_parser *prsr, parent_stac
 {
     while (schain)
     {
-        if (schain->type == STRUCTURE_TYPE_VAR) {
-
+        if (schain->type == STRUCTURE_TYPE_VAR) 
+        {
             structure_vars *v = (structure_vars*)schain;
             
             uint32_t i;
@@ -2026,16 +2309,19 @@ static MUSTACHE_RES populate_dot_param_buffer(mustache_parser *prsr, parent_stac
                 if (pi->flags&PARAM_FLAG_IS_DOT) {
                     structure_foreach *fe_p = (structure_foreach*)pi->untyped_a;
                     uint32_t fe_child_param_count;
-                    mustache_param*child= mustache_parameter_get_child_list(fe_p->param, &fe_child_param_count);
+
+
+                    mustache_param*p = get_foreach_parameter(fe_p);
+                    mustache_param* child= mustache_parameter_get_child_list(p, &fe_child_param_count);
 
                     size_t fdoti = fe_p->cur_dot_index;
 
                     uint32_t j;
                     for (j=0; j < fe_child_param_count; j++)
                     {
-                        volatile parent_stack_block* dbg = parent_stack_push(prsr,pstack,child,(structure*)NULL,NULL);
+                        parent_stack_push(prsr,pstack,child,(structure*)NULL,NULL);
 
-                        void* param = structure_var_evaluate_dot_parameter(prsr, pstack, fe_p, j, pi);
+                        mustache_param* param = structure_var_evaluate_dot_parameter(prsr, pstack, fe_p, j, pi);
                         if (!param) {
                             char err_msg[256];
                             snprintf(err_msg,sizeof(err_msg),"error: could not evaluate dot parameter.");
@@ -2049,12 +2335,44 @@ static MUSTACHE_RES populate_dot_param_buffer(mustache_parser *prsr, parent_stac
                         parent_stack_pop(pstack);
                         child=child->pNext;
                     }
-                    v->parameters[i] = (void*)fdoti;
+                    v->parameters[i] = (void*)fdoti; // set parameter to index within the parent foreach structure dot parameter list
                 }
             }
         }
         else if (schain->type == STRUCTURE_TYPE_FOREACH) {
             structure_foreach *fe = (structure_foreach*)schain;
+            fe->cur_dot_index = 0;
+
+            if (fe->flags & PARAM_FLAG_IS_DOT) {
+                structure_foreach *fe_p = fe->dotfe_parent;
+                uint32_t fe_p_child_param_count;
+                mustache_param*child= mustache_parameter_get_child_list(fe_p->param, &fe_p_child_param_count);
+
+                size_t fdoti = fe_p->cur_dot_index;
+                uint32_t j;
+                for (j=0; j < fe_p_child_param_count; j++)
+                {
+                    parent_stack_push(prsr,pstack,child,(structure*)NULL,NULL);
+
+                    mustache_param* param = structure_foreach_evaluate_dot_parameter(prsr, pstack, fe_p, j, fe);
+                    if (!param) {
+                        char err_msg[256];
+                        snprintf(err_msg,sizeof(err_msg),"error: could not evaluate dot parameter.");
+                        prsr->err_callback(prsr,err_msg,fe->first,fe->first+fe->label_length);
+                        return MUSTACHE_ERR;
+                    }
+
+                    fe_p->dot_params[fe_p->cur_dot_index++] = param;
+
+
+                    parent_stack_pop(pstack);
+                    child=child->pNext;
+                }
+                fe_p->cur_dot_index = 0;
+                fe->param = (void*)fdoti;
+            }
+
+            fe->cur_param_index = 0;
             MUSTACHE_RES r = populate_dot_param_buffer(prsr, pstack, dot_param_buf_out, fe->children);
             if (r) {
                 return MUSTACHE_ERR;
@@ -2078,11 +2396,10 @@ static MUSTACHE_RES structured_init_dot_params(mustache_parser* parser, parent_s
         return MUSTACHE_ERR_ALLOC;
     }
     
-    set_dot_param_buffers_of_foreach_structures(rootstruct->pDotParamBuffer, schain);
+    mustache_param** dot_buffer_cur = set_dot_param_buffers_of_foreach_structures(parser, pstack, rootstruct->pDotParamBuffer, schain);
     // populate dot parameter buffers
-    MUSTACHE_RES r = populate_dot_param_buffer(parser, pstack, rootstruct->pDotParamBuffer, schain);
+    MUSTACHE_RES r = populate_dot_param_buffer(parser, pstack, dot_buffer_cur, schain);
     if (r) {return r;}
-    //dot_param_buffer_undo_foreach_increment(rootstruct->pDotParamBuffer, schain);
 
     return MUSTACHE_SUCCESS;
 }
@@ -2193,6 +2510,7 @@ static uint8_t* structure_vars_write(mustache_parser* parser, mustache_stream* s
 
         //evaluate parameter, if it is a '.'
         if (pi->flags & PARAM_FLAG_IS_DOT) {
+            // parent foreach structure
             structure_foreach* fe = (structure_foreach*)pi->untyped_a;
             p = fe->dot_params[(size_t)p+fe->cur_param_index];
             inter_first += pi->untyped_b;
@@ -2259,7 +2577,8 @@ static char* structure_foreach_write(mustache_parser* parser, mustache_stream* s
 {
 
     uint32_t child_count=0;
-    mustache_parameter_get_child_list(sf->param, &child_count);
+    mustache_param* p = get_foreach_parameter(sf);
+    mustache_parameter_get_child_list(p, &child_count);
     sf->cur_param_index=0;
     for (uint32_t i = 0; i < child_count; ++i) {
         *input_cur = sf->first+sf->label_length;
@@ -2269,6 +2588,10 @@ static char* structure_foreach_write(mustache_parser* parser, mustache_stream* s
         sf->cur_param_index++;
     }
 
+    //const char *close_label=sf->end_label;
+    const char *close_label_end=sf->end_label+sf->end_label_length;
+    //out_cur = mwrite(stream, out_cur, out_end, *input_cur, close_label);
+    *input_cur = close_label_end;
     return out_cur;
 }
 
@@ -2345,6 +2668,8 @@ MUSTACHE_RES write_structured(mustache_parser* parser, mustache_stream* stream, 
         return mres;
     }
         
+    outcur=mwrite(stream, outcur, output_end, linput, input_end);
+    
     *output_cursor=outcur;
     return MUSTACHE_SUCCESS;
 }
@@ -2436,7 +2761,7 @@ mustache_param* mustache_param_get_child_at_index(mustache_param* p, uint32_t in
     uint32_t max_c;
     if (p->type==MUSTACHE_PARAM_OBJECT) {
         mustache_param_object *obj = (mustache_param_object*)p;
-        max_c = UINT32_MAX;
+        max_c = obj->memberCount;
         p=obj->pMembers;
     } else if (p->type==MUSTACHE_PARAM_LIST) {
         mustache_param_list *list = (mustache_param_list*)p;
@@ -2559,8 +2884,10 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStac
                 return err;
             }
             
-
+    #ifndef NDEBUG
             mustache_dbg_print_structure_chain((mustache_structure*)schain, 0);
+    #endif // 
+
 
             // alloc another root
             structure_root* root = parser->alloc(parser,sizeof(structure_root));
@@ -2605,7 +2932,10 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStac
 
 
 
-
+void mustache_structure_chain_free(mustache_parser* parser, mustache_structure* structure_chain)
+{
+    
+}
 
 
 
@@ -2713,6 +3043,10 @@ static const char* grab_JSON_string(mustache_json_info* ji, const char* sfirst, 
                     }
                     else if (c=='/') {
                         *ji->cur++ = c;
+                    } else if (c=='u') {
+                        char warn[256];
+                        snprintf(warn,sizeof(warn),"This templating engine does not support unicode characters, the '/u' escape code within JSON will be ignored.");
+                        ji->parser->warn_callback(ji->parser,warn,sfirst,*send);
                     }
                 } else {
                     *ji->cur++ = c;
@@ -2857,11 +3191,13 @@ static const char* parse_JSON_object(mustache_json_info* ji, mustache_param** no
         obj->type=MUSTACHE_PARAM_OBJECT;
         obj->pNext = NULL;
         obj->pMembers=NULL;
+        obj->memberCount=0u;
 
         ji->cur+=sizeof(mustache_param_object);
         *node_out = (mustache_param*)obj;
     }
 
+    uint32_t child_count=0;
     mustache_param *last_child=NULL;
     const char* cur = first;
     while (cur < src_end)
@@ -2874,6 +3210,13 @@ static const char* parse_JSON_object(mustache_json_info* ji, mustache_param** no
                 return NULL;
             }
             if (ji->cur) {
+                if (obj->memberCount==UINT32_MAX) {
+                    char err[256];
+                    snprintf(err,sizeof(err),"This templating engine cannot parse JSON objects with over "PRIu32" children.", UINT32_MAX);
+                    ji->parser->err_callback(ji->parser,err,cur,src_end);
+                    break;
+                }
+                obj->memberCount++;
                 if (last_child) {
                     last_child->pNext = p;
                     last_child = p;
@@ -3067,8 +3410,12 @@ ret_node:
 
 uint8_t mustache_JSON(mustache_parser* parser, mustache_const_slice JSON, mustache_json_info* json_info)
 {
-    if (json_info->use_parser_alloc_free && !json_info->parser) {return MUSTACHE_ERR_ARGS;}
+    if (!json_info->parser) {return MUSTACHE_ERR_ARGS;}
     if (json_info->buffer && json_info->buffer_size==0) {return MUSTACHE_ERR_ARGS;}
+
+    if (!json_info->parser->err_callback) {json_info->parser->err_callback=mustache_dummy_err_callback;}
+    if (!json_info->parser->warn_callback) {json_info->parser->warn_callback=mustache_dummy_err_callback;}
+
 
     json_info->buffer_size = 0;
     json_info->first_param = NULL;
@@ -3298,7 +3645,7 @@ void mustache_dbg_print_structure_chain(mustache_structure* __structure, int32_t
                 // }
 
                 PARAM_FLAGS pflag=0;
-                if (param_infos) {
+                if (param_infos>1) {
                     structure_parameter_info* pi = param_infos+i;
                     pflag=pi->flags;
                 }
@@ -3306,8 +3653,13 @@ void mustache_dbg_print_structure_chain(mustache_structure* __structure, int32_t
                 if (pflag&PARAM_FLAG_FUNCTION_LEN) {
                     printf("len(");
                 }
-                if (!pflag&PARAM_FLAG_IS_DOT) {
-                    printf("'%.*s'",p->name.len, p->name.u);
+                if (!(pflag&PARAM_FLAG_IS_DOT) && !param_infos==(void*)1) {
+                    if (p) {
+                        printf("'%.*s'",(int)p->name.len, p->name.u);
+                    }
+                    else {
+                        printf("* MISSING PARAMETER *");
+                    }
                 } else {
                     printf("/is_dot/");
                 }
@@ -3349,6 +3701,9 @@ mustache_param** mustache_dbg_structure_get_params(mustache_structure* _structur
     if (s->type == STRUCTURE_TYPE_FOREACH) {
         structure_foreach *fe = (structure_foreach*)s;
         *pcount = 1;
+        if (fe->flags & PARAM_FLAG_IS_DOT) {
+            *param_infos = (void*)1;
+        }
         return &fe->param;
     } else if (s->type == STRUCTURE_TYPE_VAR) {
         structure_vars *sv = (structure_vars*)s;
