@@ -297,7 +297,8 @@ typedef enum {
     PARAM_FLAG_ALLOW_HTML = 0x1,
     PARAM_FLAG_IS_DOT = 0x2, // only available in foreach loops
     PARAM_FLAG_FUNCTION = 0x80,
-    PARAM_FLAG_FUNCTION_LEN = 0x4 | PARAM_FLAG_FUNCTION
+    PARAM_FLAG_FUNCTION_LEN = 0x4 | PARAM_FLAG_FUNCTION,
+    PARAM_FLAG_UNIQUE = 0x800 /*can be used for anything*/
 } PARAM_FLAGS_ENUM;
 
 typedef uint16_t PARAM_FLAGS;
@@ -308,6 +309,8 @@ typedef struct {
     const char* end;
     uint64_t untyped_a; // if flags & PARAM_FLAG_DOT - this is a pointer to the parent foreach loop
     uint64_t untyped_b; // if flags & PARAM_FLAG_DOT  - the number of dots preceding the variable
+    uint16_t curdotoffset;
+    uint16_t last_pe_param_index;
     PARAM_FLAGS flags;
 } structure_parameter_info;
 
@@ -352,10 +355,12 @@ typedef struct structure_foreach {
     mustache_param* param; // the parent object to search in the foreach loop
     mustache_param** dot_params; // before buffer intitialization, this holds the number of dot parameters.
 
-    union {
-        uint32_t cur_dot_index;
-        uint32_t cur_param_index;
-    };
+#ifndef  NDEBUG
+    uint16_t DBG_dot_param_count;
+#endif // ! NDEBUG
+
+    uint32_t param_index;
+    uint32_t cur_dot_offset;
 
     // these are only valid if flags&PARAM_FLAG_DOT
     structure_foreach*   dotfe_parent;
@@ -427,6 +432,7 @@ mustache_param* mustache_parameter_get_child_list(mustache_param* param, uint32_
         *max_child_count = o->memberCount;
         return o->pMembers;
     }
+    *max_child_count = 0;
     return NULL;
 }
 
@@ -1691,7 +1697,7 @@ uint32_t get_retrospective_dot_param_count(mustache_parser *parser, parent_stack
 static mustache_param* get_foreach_parameter(structure_foreach* fe) {
     if (fe->flags&PARAM_FLAG_IS_DOT) {
         structure_foreach* fep = fe->dotfe_parent;
-        mustache_param*p= fep->dot_params[(uintptr_t)fe->param + fep->cur_param_index];
+        mustache_param*p= fep->dot_params[(uintptr_t)fe->param + fep->param_index];
         return p;
     } else {
         return fe->param;
@@ -1895,11 +1901,11 @@ static MUSTACHE_RES create_structure_vars(mustache_parser* parser, mustache_para
                 vinterior_begin++;
             }
 
-            if (*vinterior_begin=='.')   // this is a special case, which is only valid within foreach loops!
+            if (*vinterior_begin=='.')   // this is a special case which is only valid within foreach loops
             {
                  
                 uint32_t preceeding_dot_count = 0;
-                while (*vinterior_begin == '.')
+                while (*vinterior_begin == '.' )
                 {
                     preceeding_dot_count++;
                     vinterior_begin++;
@@ -2177,22 +2183,31 @@ static uint8_t source_to_structured(mustache_parser* parser, mustache_param* pro
     return MUSTACHE_SUCCESS;
 }
 
-
+/*
 // this assigns a slice of the dot parameter buffer to a foreach structure.
 static mustache_param** set_dot_param_buffers_of_foreach_structures(mustache_parser* parser, parent_stack *pstack, mustache_param** dot_param_buf, structure* schain) 
 {
     while (schain) {
         if (schain->type==STRUCTURE_TYPE_FOREACH) {
             structure_foreach *fe = (structure_foreach*)schain;
+            fe->cur_dot_offset = 0;
+            fe->param_index = 0;
 
             uint32_t dpc = (uint32_t)fe->dot_params;
-            // i'm pretty certain that the offset should be mulitpled by the nunber of child in the foreach 'fe' structure.
+#ifndef NDEBUG
+            fe->DBG_dot_param_count = dpc;
+            printf("\n[foreach dot params: %d]", fe->DBG_dot_param_count);
+#endif // !NDEBUG
+
+            uint32_t fe_child_count;
+            mustache_parameter_get_child_list(get_foreach_parameter(fe), &fe_child_count);
             fe->dot_params = dot_param_buf;
-            dot_param_buf+=dpc;
+            dot_param_buf += dpc + fe_child_count;
+
 
             dot_param_buf = set_dot_param_buffers_of_foreach_structures(parser, pstack, dot_param_buf, fe->children);
-
-            if (fe->flags & PARAM_FLAG_IS_DOT) {
+            
+            if (dpc > 0 && fe->flags & PARAM_FLAG_IS_DOT) {
                 //mustache_parameter_get_child_list(fe->param, &fe_child_count);
 
 
@@ -2208,10 +2223,15 @@ static mustache_param** set_dot_param_buffers_of_foreach_structures(mustache_par
                 const char* int_e = fe->first+fe->label_length-2;
 
 
+                uintptr_t* fe_dot_offsets = (uintptr_t*)(fe->dot_params);
+                mustache_param** fe_dot_params = fe->dot_params + fe_parent_dotcount;
+
                 uint32_t i =0;
                 uint32_t self_dotcount=0;
                 while (paramlist && i++ < fe_parent_dotcount)
                 {
+                    fe_dot_offsets[i] = fe->cur_dot_index;
+
                     parent_stack_push(parser,pstack,paramlist,(structure*)fe_p,NULL);
                     mustache_param* p = get_parameter_by_name(parser, NULL, pstack, int_f, int_e, int_e);
                     parent_stack_pop(pstack);
@@ -2221,30 +2241,26 @@ static mustache_param** set_dot_param_buffers_of_foreach_structures(mustache_par
                     uint32_t childcount = 0;
                     mustache_param* child_param = mustache_parameter_get_child_list(p, &childcount);
                        
-                    uint32_t j = 0;
-                    while (child_param && j++ < childcount) {
-                        fe->dot_params[fe->cur_dot_index++] = child_param;
-                        child_param = child_param->pNext;
-                    }
+                    //uint32_t j = 0;
+                    //while (child_param && j++ < childcount) {
+                    //    uintptr_t offset = fe_dot_offsets[i] + j;
+                    //    fe_dot_params[offset] = child_param;
+                    //    child_param = child_param->pNext;
+                    //    fe->cur_dot_index++;
+                    //}
 
-
-
-
-
-
-                    // uint32_t p_childcount;
-                    // mustache_parameter_get_child_list(p, &p_childcount);
 
 
                     paramlist = paramlist->pNext;
                 }
             }
+           
         }
         schain=schain->pNext;
     }    
 
     return dot_param_buf;
-}
+}*/
 
 
 
@@ -2272,12 +2288,12 @@ static mustache_param* structure_var_evaluate_dot_parameter(mustache_parser *par
 
 
 
-static mustache_param* structure_foreach_evaluate_dot_parameter(mustache_parser *parser, parent_stack *pstack, structure_foreach *fe_parent, uint32_t for_each_child_index, structure_foreach* fe)
+static mustache_param* structure_foreach_evaluate_dot_parameter(mustache_parser *parser, parent_stack *pstack, structure_foreach* fe_parent, int32_t for_each_child_index, structure_foreach* fe)
 {
     const char* int_first = fe->first+3;
     // {{.}} case
     if (fe->label_length==6 && *int_first=='.') {
-        return mustache_param_get_child_at_index(fe_parent->param,for_each_child_index);}
+        return mustache_param_get_child_at_index(fe_parent,for_each_child_index);}
 
     // first, find the parameter name
     // note that pi.first DOES not include the preceding dots,
@@ -2294,93 +2310,222 @@ static mustache_param* structure_foreach_evaluate_dot_parameter(mustache_parser 
 }
 
 
-static MUSTACHE_RES populate_dot_param_buffer(mustache_parser *prsr, parent_stack *pstack, mustache_param **dot_param_buf_out, structure *schain) 
+
+static structure_foreach* get_highest_pure_foreach(mustache_parser* prsr, parent_stack* pstack, structure_foreach *fe, uint32_t* fe_count) {
+    parent_stack_push(prsr, pstack, fe->param, fe, NULL);
+    (*fe_count)++;
+
+    if (fe->flags & PARAM_FLAG_IS_DOT) {
+        return get_highest_pure_foreach(prsr,pstack,fe->dotfe_parent, fe_count);
+    }
+    return fe;
+}
+
+
+static void populate_foreach_of_pure_foreach_descendant(mustache_parser* prsr, parent_stack* pstack, parent_stack_block* block, parent_stack_block* last_block, structure_foreach* ____) 
+{
+    structure_foreach* fe = (void*)block->parent;
+    //fe->param_index = 0;
+
+    if (block == last_block) {
+        uint32_t i = 0;
+        structure_foreach* fe_parent = fe->dotfe_parent;
+
+
+        mustache_param* p = structure_foreach_evaluate_dot_parameter(prsr, pstack, fe_parent, fe_parent->param_index, fe);
+            
+        // note that checking if fe.cur_param_index == 0 will not work,
+        // because if that is a nested loop,  fe.cur_param_index == 0 could be true
+        // multiple times, thus overwriting the intended start of the dot parameters.
+        if (!(fe->flags & PARAM_FLAG_UNIQUE)) {
+            fe->param = fe_parent->cur_dot_offset;
+            fe->flags |= PARAM_FLAG_UNIQUE;
+        }
+
+        fe_parent->dot_params[fe_parent->cur_dot_offset] = p;
+        fe_parent->cur_dot_offset++;
+    }
+    else {
+
+        uint32_t childcount;
+        mustache_param* child = mustache_parameter_get_child_list(get_foreach_parameter(fe), &childcount);
+        fe->param_index = 0;
+        while (child && childcount > 0)
+        {
+            parent_stack_push(prsr, pstack, child, (structure*)NULL, NULL); // needed for structure_var_evaluate_dot_parameter
+            populate_foreach_of_pure_foreach_descendant(prsr, pstack, block - 1, last_block, fe);
+            parent_stack_pop(pstack);
+            fe->param_index++;
+
+            child = child->pNext;
+            childcount--;
+        }
+    }
+}
+
+
+static void populate_foreach_of_pure_foreach(mustache_parser* prsr, parent_stack* pstack, uint32_t stack_baseoffset, structure_foreach* pure_fe, structure_foreach* fe) 
+{
+    parent_stack_block* base_block = (parent_stack_block*)pstack->buf.u + pstack->count - 1;
+    parent_stack_block* last_block = (parent_stack_block*)pstack->buf.u + stack_baseoffset;
+
+    structure_foreach* base_fe = (void*)base_block->parent;
+    uint32_t childcount;
+
+    mustache_param* base_fe_param = get_foreach_parameter(base_fe);
+    mustache_param* child = mustache_parameter_get_child_list(base_fe_param, &childcount);
+    base_fe->param_index = 0;
+    populate_foreach_of_pure_foreach_descendant(prsr, pstack, base_block,last_block, fe);
+}
+
+
+
+static void populate_var_of_pure_foreach_descendant(mustache_parser* prsr, parent_stack* pstack, parent_stack_block* block, parent_stack_block* last_block, structure_vars* sv, uint32_t sv_param_index) 
+{
+    structure_foreach* fe = (void*)block->parent;
+    //fe->param_index = 0;
+
+    uint32_t childcount;
+    mustache_param* child = mustache_parameter_get_child_list(get_foreach_parameter(fe), &childcount);
+
+    if (block == last_block) {
+        uint32_t i = 0;
+        fe->param_index = 0;
+        while (child && childcount > 0)
+        {
+            parent_stack_push(prsr, pstack, child, (structure*)NULL, NULL); // needed for structure_var_evaluate_dot_parameter
+
+
+            structure_parameter_info* pi = sv->param_infos + sv_param_index;
+            structure_foreach* fe = (void*)pi->untyped_a;
+            mustache_param* p = structure_var_evaluate_dot_parameter(prsr, pstack,fe,fe->param_index,pi);
+#ifndef NDEBUG
+            if (!p) {
+                assert(0&&"failed to evaluate dot parameter.");
+            }
+#endif // !NDEBUG
+
+
+            // note that checking if fe.cur_param_index == 0 will not work,
+            // because if that is a nested loop,  fe.cur_param_index == 0 could be true
+            // multiple times, thus overwriting the intended start of the dot parameters.
+            if (!(pi->flags& PARAM_FLAG_UNIQUE)) {
+                sv->parameters[sv_param_index] = fe->cur_dot_offset;
+                pi->flags |= PARAM_FLAG_UNIQUE;
+            }
+            fe->dot_params[fe->cur_dot_offset] = p;
+            fe->cur_dot_offset++;
+
+            childcount--;
+            child = child->pNext;
+
+
+            parent_stack_pop(pstack);
+            fe->param_index++;
+        }
+    }
+    else {
+        fe->param_index = 0;
+        while (child && childcount > 0)
+        {
+            parent_stack_push(prsr, pstack, child, (structure*)NULL, NULL); // needed for structure_var_evaluate_dot_parameter
+            populate_var_of_pure_foreach_descendant(prsr,pstack, block-1, last_block, sv, sv_param_index);
+            parent_stack_pop(pstack);
+            fe->param_index++;
+
+            child = child->pNext;
+            childcount--;
+        }
+    }
+}
+
+static void populate_var_of_pure_foreach(mustache_parser* prsr, parent_stack* pstack, uint32_t stack_baseoffset, structure_foreach* fe, structure_vars* sv, uint32_t sv_param_index) {
+    parent_stack_block* base_block = (parent_stack_block*)pstack->buf.u + pstack->count - 1;
+    parent_stack_block* last_block = (parent_stack_block*)pstack->buf.u + stack_baseoffset;
+
+    structure_foreach* base_fe = (void*)base_block->parent;
+    uint32_t childcount;
+    
+    mustache_param* child = mustache_parameter_get_child_list(base_fe->param, &childcount);
+    base_fe->param_index = 0;
+    /*
+    while (child && childcount > 0) 
+    {
+     
+        parent_stack_push(prsr, pstack, child, (structure*)NULL, NULL); // needed for structure_var_evaluate_dot_parameter
+    */
+        populate_var_of_pure_foreach_descendant(prsr,pstack, base_block, last_block, sv, sv_param_index);
+    /*
+        parent_stack_pop(pstack);
+
+        base_fe->param_index++;
+
+        child = child->pNext;
+        childcount--;
+    }
+    */
+}
+
+static MUSTACHE_RES populate_dot_param_buffer(mustache_parser *prsr, parent_stack *pstack, mustache_param **dot_param_buf, structure *schain) 
 {
     while (schain)
     {
         if (schain->type == STRUCTURE_TYPE_VAR) 
         {
-            structure_vars *v = (structure_vars*)schain;
-            
-            uint32_t i;
-            for (i=0;i<v->parameter_count;++i) {
-                structure_parameter_info* pi = v->param_infos+i;
+            structure_vars* sv = (void*)schain;
+            for (uint32_t i = 0; i < sv->parameter_count; ++i) 
+            {
+                structure_parameter_info *pi = sv->param_infos + i;
 
-                if (pi->flags&PARAM_FLAG_IS_DOT) {
-                    structure_foreach *fe_p = (structure_foreach*)pi->untyped_a;
-                    uint32_t fe_child_param_count;
+                if (pi->flags & PARAM_FLAG_IS_DOT) 
+                {
+                    structure_foreach* fe = (void*)pi->untyped_a;
 
+                    // store stack state
+                    size_t old_pcount = pstack->count;
 
-                    mustache_param*p = get_foreach_parameter(fe_p);
-                    mustache_param* child= mustache_parameter_get_child_list(p, &fe_child_param_count);
+                    uint32_t fe_stack_count = 0;
+                    structure_foreach* purefe = get_highest_pure_foreach(prsr, pstack, fe, &fe_stack_count);
 
-                    size_t fdoti = fe_p->cur_dot_index;
+                    populate_var_of_pure_foreach(prsr, pstack, old_pcount, purefe, sv, i);
 
-                    uint32_t j;
-                    for (j=0; j < fe_child_param_count; j++)
-                    {
-                        parent_stack_push(prsr,pstack,child,(structure*)NULL,NULL);
-
-                        mustache_param* param = structure_var_evaluate_dot_parameter(prsr, pstack, fe_p, j, pi);
-                        if (!param) {
-                            char err_msg[256];
-                            snprintf(err_msg,sizeof(err_msg),"error: could not evaluate dot parameter.");
-                            prsr->err_callback(prsr,err_msg,pi->first,pi->end);
-                            return MUSTACHE_ERR;
-                        }
-
-                        fe_p->dot_params[fe_p->cur_dot_index++] = param;
-
-
-                        parent_stack_pop(pstack);
-                        child=child->pNext;
-                    }
-                    v->parameters[i] = (void*)fdoti; // set parameter to index within the parent foreach structure dot parameter list
+                    // revert stack state
+                    pstack->count = old_pcount;
                 }
             }
         }
-        else if (schain->type == STRUCTURE_TYPE_FOREACH) {
-            structure_foreach *fe = (structure_foreach*)schain;
-            fe->cur_dot_index = 0;
+        else if (schain->type == STRUCTURE_TYPE_FOREACH)
+        {
+            structure_foreach* fe = (void*)schain;
 
             if (fe->flags & PARAM_FLAG_IS_DOT) {
-                structure_foreach *fe_p = fe->dotfe_parent;
-                uint32_t fe_p_child_param_count;
-                mustache_param*child= mustache_parameter_get_child_list(fe_p->param, &fe_p_child_param_count);
+                structure_foreach* fe_parent = (void*)fe->dotfe_parent;
 
-                size_t fdoti = fe_p->cur_dot_index;
-                uint32_t j;
-                for (j=0; j < fe_p_child_param_count; j++)
-                {
-                    parent_stack_push(prsr,pstack,child,(structure*)NULL,NULL);
+                // store stack state
+                size_t old_pcount = pstack->count;
 
-                    mustache_param* param = structure_foreach_evaluate_dot_parameter(prsr, pstack, fe_p, j, fe);
-                    if (!param) {
-                        char err_msg[256];
-                        snprintf(err_msg,sizeof(err_msg),"error: could not evaluate dot parameter.");
-                        prsr->err_callback(prsr,err_msg,fe->first,fe->first+fe->label_length);
-                        return MUSTACHE_ERR;
-                    }
+                uint32_t fe_stack_count = 0;
+                structure_foreach* purefe = get_highest_pure_foreach(prsr, pstack, fe, &fe_stack_count);
+                populate_foreach_of_pure_foreach(prsr, pstack, old_pcount, purefe, fe);
 
-                    fe_p->dot_params[fe_p->cur_dot_index++] = param;
-
-
-                    parent_stack_pop(pstack);
-                    child=child->pNext;
-                }
-                fe_p->cur_dot_index = 0;
-                fe->param = (void*)fdoti;
+                // revert stack state
+                pstack->count = old_pcount;
             }
 
-            fe->cur_param_index = 0;
-            MUSTACHE_RES r = populate_dot_param_buffer(prsr, pstack, dot_param_buf_out, fe->children);
-            if (r) {
-                return MUSTACHE_ERR;
-            }
+
+
+            parent_stack_push(prsr, pstack, fe->param, fe, NULL);
+
+            // just a temporary solution!
+            fe->dot_params = prsr->alloc(prsr, sizeof(mustache_param*) * (size_t)fe->dot_params);
+
+            populate_dot_param_buffer(prsr, pstack, dot_param_buf, fe->children);
+
+            parent_stack_pop(pstack);
         }
-
-        schain=schain->pNext;
+        schain = schain->pNext;
     }
+
     return MUSTACHE_SUCCESS;
 }
 
@@ -2391,14 +2536,24 @@ static MUSTACHE_RES structured_init_dot_params(mustache_parser* parser, parent_s
     if (pstack->total_dot_param_count==0) {
         return MUSTACHE_SUCCESS;
     }
-    rootstruct->pDotParamBuffer = parser->alloc(parser, sizeof(mustache_param*)*pstack->total_dot_param_count);
+
+    rootstruct->pDotParamBuffer = parser->alloc(
+        parser,
+        sizeof(mustache_param*) * pstack->total_dot_param_count  /*dot params*/
+        + pstack->total_dot_param_count * sizeof(uintptr_t) /* and the offset buffer - this is required to support lists within dot parameters... */
+                                                           /* to retrieve a dot parameter: */
+                                                           /*   offset = fe.dotparams[p.param + fe.cur_param_index]*/
+                                                           /*   param = fe.dotparams[p.param + offset]*/
+                                                           /* the layout of the buffer has the offsets (uintptr_t[]) just before the actual dot params (void*[]).*/
+    );
+
     if (!rootstruct->pDotParamBuffer) {
         return MUSTACHE_ERR_ALLOC;
     }
     
-    mustache_param** dot_buffer_cur = set_dot_param_buffers_of_foreach_structures(parser, pstack, rootstruct->pDotParamBuffer, schain);
+   // mustache_param** dot_buffer_cur = set_dot_param_buffers_of_foreach_structures(parser, pstack, rootstruct->pDotParamBuffer, schain);
     // populate dot parameter buffers
-    MUSTACHE_RES r = populate_dot_param_buffer(parser, pstack, dot_buffer_cur, schain);
+    MUSTACHE_RES r = populate_dot_param_buffer(parser, pstack, rootstruct->pDotParamBuffer, schain);
     if (r) {return r;}
 
     return MUSTACHE_SUCCESS;
@@ -2495,10 +2650,9 @@ static uint8_t* strwrite(mustache_stream* stream, uint8_t* out_cur, uint8_t* out
    return nwrite(stream,out_cur,out_end,str,strlen(str));
 }
 
-static uint8_t* structure_vars_write(mustache_parser* parser, mustache_stream* stream, uint8_t* out_cur, uint8_t* out_end, structure_vars* sv)
+
+static uint8_t* structure_vars_write(mustache_parser* parser, mustache_stream* stream, mustache_structure* schain_parent, uint8_t* out_cur, uint8_t* out_end, structure_vars* sv)
 {
-
-
     // characters between variables and opening/closing stache - (these may or may not exist)
     const char* inter_first=sv->first+2;
     const char* inter_last=sv->first+sv->label_length-2;
@@ -2512,10 +2666,29 @@ static uint8_t* structure_vars_write(mustache_parser* parser, mustache_stream* s
         if (pi->flags & PARAM_FLAG_IS_DOT) {
             // parent foreach structure
             structure_foreach* fe = (structure_foreach*)pi->untyped_a;
-            p = fe->dot_params[(size_t)p+fe->cur_param_index];
-            inter_first += pi->untyped_b;
-        }
 
+            if (pi->last_pe_param_index != fe->param_index) {
+                pi->curdotoffset++;
+                pi->last_pe_param_index = fe->param_index;
+            }
+
+            uintptr_t pof = (uintptr_t)p;
+            p = fe->dot_params[pof + pi->curdotoffset];
+
+
+
+
+            inter_first += pi->untyped_b; // add dot count
+
+        #ifndef NDEBUG
+            if (p == NULL) {
+                assert(00 && "Could not evaluate dot parameter");
+            }
+            else {
+                mustache_print_node(p, 0);
+            }
+        #endif // !NDEBUG
+        }
 
         out_cur = mwrite(stream, out_cur, out_end, inter_first, pi->first);
 
@@ -2579,13 +2752,15 @@ static char* structure_foreach_write(mustache_parser* parser, mustache_stream* s
     uint32_t child_count=0;
     mustache_param* p = get_foreach_parameter(sf);
     mustache_parameter_get_child_list(p, &child_count);
-    sf->cur_param_index=0;
+
+    sf->param_index=0;  // RESET CHILD PARAM INDEX HEAD
+
     for (uint32_t i = 0; i < child_count; ++i) {
         *input_cur = sf->first+sf->label_length;
-        structure_write(parser,stream, &out_cur, out_end,sf->children, input_cur, (structure*)sf);
+        structure_write(parser, stream, (structure*)sf, &out_cur, out_end,sf->children, input_cur);
         // write memory after input cursor
         out_cur = mwrite(stream,out_cur, out_end, *input_cur, sf->end_label);
-        sf->cur_param_index++;
+        sf->param_index++;
     }
 
     //const char *close_label=sf->end_label;
@@ -2597,7 +2772,7 @@ static char* structure_foreach_write(mustache_parser* parser, mustache_stream* s
 
 
 
-static MUSTACHE_RES structure_write(mustache_parser* parser, mustache_stream* stream, char** output_cur, char* output_end, structure* schain, const char** input_cur, structure* parent) 
+static MUSTACHE_RES structure_write(mustache_parser* parser, mustache_stream* stream, structure* schain_parent, char** output_cur, char* output_end, structure* schain, const char** input_cur) 
 {
     while (schain)
     {
@@ -2618,7 +2793,7 @@ static MUSTACHE_RES structure_write(mustache_parser* parser, mustache_stream* st
         if (schain->type == STRUCTURE_TYPE_VAR) 
         {
             structure_vars *sv = (structure_vars*)schain;
-            *output_cur = structure_vars_write(parser, stream, *output_cur,output_end, sv);
+            *output_cur = structure_vars_write(parser, stream, schain_parent, *output_cur,output_end, sv);
 
             *input_cur = sv->first+sv->label_length;
         } 
@@ -2626,7 +2801,6 @@ static MUSTACHE_RES structure_write(mustache_parser* parser, mustache_stream* st
         {
             structure_foreach *sf =   (structure_foreach*)schain;  
 
-            sf->cur_param_index = 0; // RESET CHILD PARAM INDEX HEAD
             *output_cur = structure_foreach_write(parser, stream, *output_cur, output_end, input_cur, sf);
         } 
         else if (schain->type == STRUCTURE_TYPE_ESCAPE) 
@@ -2651,6 +2825,29 @@ static MUSTACHE_RES structure_write(mustache_parser* parser, mustache_stream* st
     return MUSTACHE_SUCCESS;
 }
 
+void structure_prime_for_write(structure* schain) {
+    while (schain) {
+        if (schain->type == STRUCTURE_TYPE_FOREACH) {
+            structure_foreach* fe = (void*)schain;
+            fe->param_index = 0;
+            structure_prime_for_write(fe->children);
+        }
+        else if (schain->type == STRUCTURE_TYPE_VAR) {
+            structure_vars* sv = (void*)schain;
+            for (uint32_t i = 0; i < sv->parameter_count; ++i) {
+                structure_parameter_info* pi = sv->param_infos+i;
+                pi->curdotoffset = 0;
+                //pi->last_pe_param_index = (2<<(sizeof(pi->last_pe_param_index)*8-1))-1;
+                pi->last_pe_param_index = 0;
+                pi->flags &= ~PARAM_FLAG_UNIQUE;
+            }
+        }
+
+
+        schain = schain->pNext;
+    }
+}
+
 MUSTACHE_RES write_structured(mustache_parser* parser, mustache_stream* stream, char** output_cursor, char* output_first, char* output_end, const char* input_begin, const char* input_end, structure* schain)
 {
     // write everything preceding the structure
@@ -2663,7 +2860,9 @@ MUSTACHE_RES write_structured(mustache_parser* parser, mustache_stream* stream, 
     // traverses all structures on the same level, and 
     // writes all children for each parent structure traversed
 
-    MUSTACHE_RES mres = structure_write(parser, stream, &outcur, output_end, schain, &linput, NULL);
+    structure_prime_for_write(schain);
+
+    MUSTACHE_RES mres = structure_write(parser, stream, NULL, &outcur, output_end, schain, &linput);
     if (mres) { // write failure
         return mres;
     }
@@ -2879,14 +3078,16 @@ uint8_t mustache_parse_stream(mustache_parser* parser, mustache_slice parentStac
                 return err;
             }
             
+        #ifndef NDEBUG
+            mustache_dbg_print_structure_chain((mustache_structure*)schain, 0);
+        #endif // 
+
+
             err = structured_init_dot_params(parser, &parentStack, params, schain, lastRoot);
             if (err) {
                 return err;
             }
             
-    #ifndef NDEBUG
-            mustache_dbg_print_structure_chain((mustache_structure*)schain, 0);
-    #endif // 
 
 
             // alloc another root
@@ -3590,6 +3791,10 @@ void mustache_print_node(mustache_param* node, int depth)
 
 void mustache_print_parameter_list(mustache_param* root)
 {
+    if (!root) {
+        printf("(null parameter)\n");
+        return;
+    }
     while (root)
     {
         mustache_print_node(root,0);
@@ -3661,7 +3866,13 @@ void mustache_dbg_print_structure_chain(mustache_structure* __structure, int32_t
                         printf("* MISSING PARAMETER *");
                     }
                 } else {
-                    printf("/is_dot/");
+                    if (s->type == STRUCTURE_TYPE_FOREACH) {
+                        structure_foreach* fe = (structure_foreach*)s;;
+                        printf("/is_dot %"PRIu64" / ", (uint64_t)fe->dot_params);
+                    }
+                    else {
+                        printf("/is_dot %"PRIu64" / ", (uint64_t)p);
+                    }
                 }
                 if (pflag&PARAM_FLAG_FUNCTION_LEN) {
                     printf(")");

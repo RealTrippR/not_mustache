@@ -61,7 +61,8 @@ int main()
 
     void *pstrbuf=NULL;
 
-    MPARAM_STR(objvar_astr, "obj_as_str", &listvar, MPARAM_TO_STR_C_ALLOC(&pstrbuf, &objvar));
+    MPARAM_STR(objvar_astr, "obj_as_str", &listvar, MPARAM_TO_STR_C_
+        &pstrbuf, &objvar));
     MPARAM_STR(strvar_astr, "str_as_str", &objvar_astr, MPARAM_TO_STR_C_ALLOC(&pstrbuf, &strvar));
     MPARAM_STR(listvar_astr, "list_as_str", &strvar_astr, MPARAM_TO_STR_C_ALLOC(&pstrbuf, &listvar));
 
